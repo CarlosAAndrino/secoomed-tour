@@ -19,8 +19,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [contador, setContador] = useState(300);
   const contadorRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // -------------------------------------------------------
+  // Idle timer — só ativo quando há sessão
+  // -------------------------------------------------------
   const handleAviso = useCallback(() => {
-    setContador(300); // 5 minutos de aviso
+    setContador(300);
     setMostrarAviso(true);
     contadorRef.current = setInterval(() => {
       setContador((c) => c - 1);
@@ -38,13 +41,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.location.href = "/entrar";
   }, []);
 
+  const sessionAtiva = !!session;
+
   const { resetar } = useIdleTimer({
-    tempoLimite: 30 * 60 * 1000, // 30 minutos
-    tempoAviso: 5 * 60 * 1000, // aviso 5 minutos antes
-    onAviso: handleAviso,
-    onExpirar: handleExpirar,
+    tempoLimite: 30 * 60 * 1000,
+    tempoAviso: 5 * 60 * 1000,
+    onAviso: sessionAtiva ? handleAviso : () => {},
+    onExpirar: sessionAtiva ? handleExpirar : () => {},
   });
 
+  function handleContinuar() {
+    if (contadorRef.current) clearInterval(contadorRef.current);
+    setMostrarAviso(false);
+    resetar();
+  }
+
+  // -------------------------------------------------------
+  // Helpers
+  // -------------------------------------------------------
   async function carregarAssociado(userId: string) {
     try {
       const { data } = await supabase
@@ -57,19 +71,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAssociado(null);
     }
   }
-  function handleContinuar() {
-    if (contadorRef.current) clearInterval(contadorRef.current);
-    setMostrarAviso(false);
-    resetar();
-  }
 
   function verificarAdmin(u: User) {
     setIsAdmin(u.app_metadata?.role === "admin");
   }
 
+  // -------------------------------------------------------
+  // Auth listener
+  // -------------------------------------------------------
   useEffect(() => {
     let mounted = true;
 
+    // Sessão inicial
     supabase.auth
       .getSession()
       .then(({ data: { session } }) => {
@@ -89,10 +102,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (mounted) setIsLoading(false);
       });
 
+    // Listener de mudanças
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
+
+      // Token renovado automaticamente — apenas atualiza sessão,
+      // não recarrega o associado para evitar flicker
+      if (event === "TOKEN_REFRESHED") {
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session?.user) verificarAdmin(session.user);
+        if (mounted) setIsLoading(false);
+        return;
+      }
+
+      // Deslogado externamente (outro dispositivo, expiração forçada)
+      if (event === "SIGNED_OUT") {
+        setSession(null);
+        setUser(null);
+        setAssociado(null);
+        setIsAdmin(false);
+        if (mounted) setIsLoading(false);
+        window.location.href = "/entrar";
+        return;
+      }
+
+      // Login ou qualquer outro evento
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -111,6 +148,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // -------------------------------------------------------
+  // Auth actions
+  // -------------------------------------------------------
   async function signIn(cpf: string, senha: string) {
     const cpfLimpo = cpf.replace(/[^0-9]/g, "");
     const email = `${cpfLimpo}@secoomed.local`;
@@ -126,6 +166,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function signOut() {
+    if (contadorRef.current) clearInterval(contadorRef.current);
+    setMostrarAviso(false);
     await supabase.auth.signOut();
     setSession(null);
     setUser(null);
