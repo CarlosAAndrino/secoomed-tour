@@ -5,6 +5,7 @@ import type { Associado } from "@/types/database";
 import { AuthContext } from "./authContextDef";
 import { useIdleTimer } from "@/hooks/useIdleTimer";
 import ModalSessaoExpirando from "@/components/ui/ModalSessaoExpirando";
+import ModalPrimeiroAcesso from "@/components/ui/ModalPrimeiroAcesso";
 
 export { AuthContext };
 
@@ -14,7 +15,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [associado, setAssociado] = useState<Associado | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-
+  const [primeiroAcesso, setPrimeiroAcesso] = useState(false);
   const [mostrarAviso, setMostrarAviso] = useState(false);
   const [contador, setContador] = useState(300);
   const contadorRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -67,6 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq("user_id", userId)
         .single();
       setAssociado(data ?? null);
+      setPrimeiroAcesso(data?.primeiro_acesso ?? false);
     } catch {
       setAssociado(null);
     }
@@ -111,6 +113,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Token renovado automaticamente — apenas atualiza sessão,
       // não recarrega o associado para evitar flicker
       if (event === "TOKEN_REFRESHED") {
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session?.user) verificarAdmin(session.user);
+        if (mounted) setIsLoading(false);
+        return;
+      }
+
+      // Senha ou dados do usuário atualizados — não recarrega associado
+      // evita loop com o modal de primeiro acesso
+      if (event === "USER_UPDATED") {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) verificarAdmin(session.user);
@@ -177,13 +189,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ session, user, associado, isAdmin, isLoading, signIn, signOut }}
+      value={{
+        session,
+        user,
+        associado,
+        isAdmin,
+        isLoading,
+        primeiroAcesso,
+        setPrimeiroAcesso,
+        signIn,
+        signOut,
+      }}
     >
       {children}
       <ModalSessaoExpirando
         visivel={mostrarAviso && !!session}
         segundosRestantes={contador}
         onContinuar={handleContinuar}
+      />
+      <ModalPrimeiroAcesso
+        visivel={!!session && primeiroAcesso}
+        onConcluido={() => setPrimeiroAcesso(false)}
       />
     </AuthContext.Provider>
   );

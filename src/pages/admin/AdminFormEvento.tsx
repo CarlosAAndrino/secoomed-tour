@@ -114,7 +114,7 @@ export default function AdminFormEvento() {
     return () => {
       mounted = false;
     };
-  }, [eventoId, isEdicao]);
+  }, [eventoId, isEdicao, navigate]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

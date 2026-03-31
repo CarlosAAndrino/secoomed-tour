@@ -8,6 +8,8 @@ export interface AuthContextData {
   associado: Associado | null
   isAdmin: boolean
   isLoading: boolean
+  primeiroAcesso: boolean
+  setPrimeiroAcesso: (valor: boolean) => void
   signIn: (cpf: string, senha: string) => Promise<{ erro?: string }>
   signOut: () => Promise<void>
 }
