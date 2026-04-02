@@ -44,11 +44,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const sessionAtiva = !!session;
 
-  const { resetar } = useIdleTimer({
+  const { resetar, resetTimestampRef } = useIdleTimer({
     tempoLimite: 30 * 60 * 1000,
     tempoAviso: 5 * 60 * 1000,
-    onAviso: sessionAtiva ? handleAviso : () => {},
-    onExpirar: sessionAtiva ? handleExpirar : () => {},
+    onAviso: handleAviso,
+    onExpirar: handleExpirar,
+    ativo: sessionAtiva,
   });
 
   function handleContinuar() {
@@ -197,6 +198,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         primeiroAcesso,
         setPrimeiroAcesso,
+        timerResetTimestampRef: resetTimestampRef,
+        resetarTimer: resetar,
         signIn,
         signOut,
       }}

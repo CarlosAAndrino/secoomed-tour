@@ -1,4 +1,4 @@
-import { createContext } from 'react'
+import { createContext, MutableRefObject } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import type { Associado } from '@/types/database'
 
@@ -10,6 +10,8 @@ export interface AuthContextData {
   isLoading: boolean
   primeiroAcesso: boolean
   setPrimeiroAcesso: (valor: boolean) => void
+  timerResetTimestampRef: MutableRefObject<number>
+  resetarTimer: () => void
   signIn: (cpf: string, senha: string) => Promise<{ erro?: string }>
   signOut: () => Promise<void>
 }

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback } from "react";
 
 interface UseIdleTimerProps {
-  tempoLimite: number      // em milissegundos
-  tempoAviso: number       // quanto antes do limite mostrar aviso
-  onAviso: () => void      // callback para mostrar aviso
-  onExpirar: () => void    // callback para deslogar
+  tempoLimite: number;
+  tempoAviso: number;
+  onAviso: () => void;
+  onExpirar: () => void;
+  ativo: boolean;
 }
 
 export function useIdleTimer({
@@ -12,42 +13,40 @@ export function useIdleTimer({
   tempoAviso,
   onAviso,
   onExpirar,
+  ativo,
 }: UseIdleTimerProps) {
-  const timerExpirar = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const timerAviso   = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const avisadoRef   = useRef(false)
+  const timerExpirar = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerAviso = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const avisadoRef = useRef(false);
+  const resetTimestampRef = useRef(0);
+
+  const limpar = useCallback(() => {
+    if (timerExpirar.current) clearTimeout(timerExpirar.current);
+    if (timerAviso.current) clearTimeout(timerAviso.current);
+  }, []);
 
   const resetar = useCallback(() => {
-    if (timerExpirar.current) clearTimeout(timerExpirar.current)
-    if (timerAviso.current)   clearTimeout(timerAviso.current)
-    avisadoRef.current = false
+    if (!ativo) return;
+    limpar();
+    avisadoRef.current = false;
+    resetTimestampRef.current = Date.now();
 
     timerAviso.current = setTimeout(() => {
-      avisadoRef.current = true
-      onAviso()
-    }, tempoLimite - tempoAviso)
+      avisadoRef.current = true;
+      onAviso();
+    }, tempoLimite - tempoAviso);
 
-    timerExpirar.current = setTimeout(() => {
-      onExpirar()
-    }, tempoLimite)
-  }, [tempoLimite, tempoAviso, onAviso, onExpirar])
+    timerExpirar.current = setTimeout(onExpirar, tempoLimite);
+  }, [ativo, tempoLimite, tempoAviso, onAviso, onExpirar, limpar]);
 
   useEffect(() => {
-    const eventos = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click']
-
-    function handleAtividade() {
-      if (!avisadoRef.current) resetar()
+    if (ativo) {
+      resetar();
+    } else {
+      limpar();
     }
+    return limpar;
+  }, [ativo, resetar, limpar]);
 
-    eventos.forEach(ev => window.addEventListener(ev, handleAtividade, true))
-    resetar()
-
-    return () => {
-      eventos.forEach(ev => window.removeEventListener(ev, handleAtividade, true))
-      if (timerExpirar.current) clearTimeout(timerExpirar.current)
-      if (timerAviso.current)   clearTimeout(timerAviso.current)
-    }
-  }, [resetar])
-
-  return { resetar }
+  return { resetar, resetTimestampRef };
 }

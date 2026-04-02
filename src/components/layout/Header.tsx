@@ -110,6 +110,14 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
                 Eventos
               </Link>
             )}
+            {session && isAdmin && (
+              <Link
+                to="/admin/associados"
+                className="text-gray-600 hover:text-green-700 font-medium transition-colors"
+              >
+                Associados
+              </Link>
+            )}
           </nav>
 
           {/* Direita */}
@@ -205,6 +213,15 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
               onClick={() => setMenuAberto(false)}
             >
               Eventos
+            </Link>
+          )}
+          {session && isAdmin && (
+            <Link
+              to="/admin/associados"
+              className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block"
+              onClick={() => setMenuAberto(false)}
+            >
+              Associados
             </Link>
           )}
           {session && (
