@@ -9,20 +9,36 @@ import ModalPrimeiroAcesso from "@/components/ui/ModalPrimeiroAcesso";
 
 export { AuthContext };
 
+// ─── Limpa tokens do localStorage — garante logout mesmo sem resposta do server
+function limparTokensLocais() {
+  const keys = Object.keys(localStorage).filter(
+    (k) => k.startsWith("sb-") && k.includes("-auth-token")
+  );
+  keys.forEach((k) => localStorage.removeItem(k));
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession]     = useState<Session | null>(null);
+  const [user, setUser]           = useState<User | null>(null);
   const [associado, setAssociado] = useState<Associado | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdmin, setIsAdmin]     = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [primeiroAcesso, setPrimeiroAcesso] = useState(false);
-  const [mostrarAviso, setMostrarAviso] = useState(false);
-  const [contador, setContador] = useState(300);
+  const [mostrarAviso, setMostrarAviso]     = useState(false);
+  const [contador, setContador]             = useState(300);
   const contadorRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // -------------------------------------------------------
-  // Idle timer — só ativo quando há sessão
-  // -------------------------------------------------------
+  // ─── Limpeza centralizada de estado ──────────────────────────────────────────
+  function limparEstadoAuth() {
+    limparTokensLocais();
+    setSession(null);
+    setUser(null);
+    setAssociado(null);
+    setIsAdmin(false);
+    setPrimeiroAcesso(false);
+  }
+
+  // ─── Idle timer ───────────────────────────────────────────────────────────────
   const handleAviso = useCallback(() => {
     setContador(300);
     setMostrarAviso(true);
@@ -34,11 +50,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const handleExpirar = useCallback(async () => {
     if (contadorRef.current) clearInterval(contadorRef.current);
     setMostrarAviso(false);
-    await supabase.auth.signOut();
-    setSession(null);
-    setUser(null);
-    setAssociado(null);
-    setIsAdmin(false);
+    try { await supabase.auth.signOut(); } catch { /* ignora */ }
+    limparEstadoAuth();
     window.location.href = "/entrar";
   }, []);
 
@@ -46,10 +59,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const { resetar, resetTimestampRef } = useIdleTimer({
     tempoLimite: 30 * 60 * 1000,
-    tempoAviso: 5 * 60 * 1000,
-    onAviso: handleAviso,
+    tempoAviso:   5 * 60 * 1000,
+    onAviso:   handleAviso,
     onExpirar: handleExpirar,
-    ativo: sessionAtiva,
+    ativo:     sessionAtiva,
   });
 
   function handleContinuar() {
@@ -58,9 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     resetar();
   }
 
-  // -------------------------------------------------------
-  // Helpers
-  // -------------------------------------------------------
+  // ─── Helpers ─────────────────────────────────────────────────────────────────
   async function carregarAssociado(userId: string) {
     try {
       const { data } = await supabase
@@ -79,13 +90,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsAdmin(u.app_metadata?.role === "admin");
   }
 
-  // -------------------------------------------------------
-  // Auth listener
-  // -------------------------------------------------------
+  // ─── Auth listener ────────────────────────────────────────────────────────────
   useEffect(() => {
     let mounted = true;
 
-    // Sessão inicial
     supabase.auth
       .getSession()
       .then(({ data: { session } }) => {
@@ -105,55 +113,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (mounted) setIsLoading(false);
       });
 
-    // Listener de mudanças
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted) return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!mounted) return;
 
-      // Token renovado automaticamente — apenas atualiza sessão,
-      // não recarrega o associado para evitar flicker
-      if (event === "TOKEN_REFRESHED") {
+        if (event === "TOKEN_REFRESHED") {
+          setSession(session);
+          setUser(session?.user ?? null);
+          if (session?.user) verificarAdmin(session.user);
+          if (mounted) setIsLoading(false);
+          return;
+        }
+
+        if (event === "USER_UPDATED") {
+          setSession(session);
+          setUser(session?.user ?? null);
+          if (session?.user) verificarAdmin(session.user);
+          if (mounted) setIsLoading(false);
+          return;
+        }
+
+        if (event === "SIGNED_OUT") {
+          limparEstadoAuth();
+          if (mounted) setIsLoading(false);
+          window.location.href = "/entrar";
+          return;
+        }
+
         setSession(session);
         setUser(session?.user ?? null);
-        if (session?.user) verificarAdmin(session.user);
+        if (session?.user) {
+          verificarAdmin(session.user);
+          await carregarAssociado(session.user.id);
+        } else {
+          setAssociado(null);
+          setIsAdmin(false);
+        }
         if (mounted) setIsLoading(false);
-        return;
       }
-
-      // Senha ou dados do usuário atualizados — não recarrega associado
-      // evita loop com o modal de primeiro acesso
-      if (event === "USER_UPDATED") {
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) verificarAdmin(session.user);
-        if (mounted) setIsLoading(false);
-        return;
-      }
-
-      // Deslogado externamente (outro dispositivo, expiração forçada)
-      if (event === "SIGNED_OUT") {
-        setSession(null);
-        setUser(null);
-        setAssociado(null);
-        setIsAdmin(false);
-        if (mounted) setIsLoading(false);
-        window.location.href = "/entrar";
-        return;
-      }
-
-      // Login ou qualquer outro evento
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        verificarAdmin(session.user);
-        await carregarAssociado(session.user.id);
-      } else {
-        setAssociado(null);
-        setIsAdmin(false);
-      }
-      if (mounted) setIsLoading(false);
-    });
+    );
 
     return () => {
       mounted = false;
@@ -161,12 +159,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // -------------------------------------------------------
-  // Auth actions
-  // -------------------------------------------------------
+  // ─── Verificação periódica de sessão (60s) ────────────────────────────────────
+  // Detecta tokens expirados silenciosamente quando SIGNED_OUT não dispara
+  useEffect(() => {
+    if (!session) return;
+
+    const verificar = async () => {
+      const { error } = await supabase.auth.getUser();
+      if (error) {
+        limparEstadoAuth();
+        window.location.href = "/entrar";
+      }
+    };
+
+    const interval = setInterval(verificar, 60_000);
+    return () => clearInterval(interval);
+  }, [session]);
+
+  // ─── Auth actions ─────────────────────────────────────────────────────────────
   async function signIn(cpf: string, senha: string) {
     const cpfLimpo = cpf.replace(/[^0-9]/g, "");
-    const email = `${cpfLimpo}@secoomed.local`;
+    const email    = `${cpfLimpo}@secoomed.local`;
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password: senha,
@@ -178,14 +191,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return {};
   }
 
+  // signOut resiliente — limpa estado local mesmo se o servidor falhar
   async function signOut() {
     if (contadorRef.current) clearInterval(contadorRef.current);
     setMostrarAviso(false);
-    await supabase.auth.signOut();
-    setSession(null);
-    setUser(null);
-    setAssociado(null);
-    setIsAdmin(false);
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Ignora erro do servidor — limpeza local garante o logout
+    } finally {
+      limparEstadoAuth();
+    }
   }
 
   return (
