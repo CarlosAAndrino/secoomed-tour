@@ -12,9 +12,12 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
   const [perfilAberto, setPerfilAberto] = useState(false);
   const perfilRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
-  const { session, associado, isAdmin, signOut } = useAuth();
   const navigate = useNavigate();
+  const { session, associado, isAdmin, signOut } = useAuth();
+
   const primeiroNome = associado?.nome?.split(" ")[0] ?? "";
+  const logado = !!session;
+  const ehAssociado = logado && !isAdmin;
 
   // Fecha o dropdown ao clicar fora
   useEffect(() => {
@@ -51,7 +54,6 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
     setPerfilAberto(false);
     setMenuAberto(false);
     await signOut();
-    // Tela branca com loading antes de redirecionar
     document.body.innerHTML = `
     <div style="
       position:fixed;inset:0;background:#fff;
@@ -101,29 +103,47 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
               Finalidade
             </button>
 
-            {/* Aba Eventos — somente admin */}
-            {session && isAdmin && (
-              <Link
-                to="/admin"
-                className="text-gray-600 hover:text-green-700 font-medium transition-colors"
-              >
-                Eventos
-              </Link>
+            {/* Admin links */}
+            {logado && isAdmin && (
+              <>
+                <Link
+                  to="/admin"
+                  className="text-gray-600 hover:text-green-700 font-medium transition-colors"
+                >
+                  Eventos
+                </Link>
+                <Link
+                  to="/admin/associados"
+                  className="text-gray-600 hover:text-green-700 font-medium transition-colors"
+                >
+                  Associados
+                </Link>
+              </>
             )}
-            {session && isAdmin && (
-              <Link
-                to="/admin/associados"
-                className="text-gray-600 hover:text-green-700 font-medium transition-colors"
-              >
-                Associados
-              </Link>
+
+            {/* Associado links */}
+            {ehAssociado && (
+              <>
+                <Link
+                  to="/area"
+                  className="text-gray-600 hover:text-green-700 font-medium transition-colors"
+                >
+                  Eventos
+                </Link>
+                <Link
+                  to="/area/inscricoes"
+                  className="text-gray-600 hover:text-green-700 font-medium transition-colors"
+                >
+                  Minhas inscrições
+                </Link>
+              </>
             )}
           </nav>
 
           {/* Direita */}
           <div className="flex items-center gap-3">
             {/* Botão Entrar — somente quando não logado */}
-            {!session && mostrarEntrar && (
+            {!logado && mostrarEntrar && (
               <a
                 href="/entrar"
                 className="bg-green-600 hover:bg-green-700 text-white font-semibold px-5 py-2 rounded-lg text-sm transition-colors"
@@ -133,13 +153,12 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
             )}
 
             {/* Perfil — somente quando logado */}
-            {session && (
+            {logado && (
               <div className="relative" ref={perfilRef}>
                 <button
                   onClick={() => setPerfilAberto(!perfilAberto)}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors"
                 >
-                  {/* Avatar */}
                   <div
                     className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                     style={{ backgroundColor: "#16a34a" }}
@@ -151,7 +170,9 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
                   </span>
                   <ChevronDown
                     size={14}
-                    className={`text-gray-400 transition-transform hidden sm:block ${perfilAberto ? "rotate-180" : ""}`}
+                    className={`text-gray-400 transition-transform hidden sm:block ${
+                      perfilAberto ? "rotate-180" : ""
+                    }`}
                   />
                 </button>
 
@@ -159,7 +180,7 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
                 {perfilAberto && (
                   <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-modal border border-gray-100 py-1 animate-fade-in">
                     <Link
-                      to="/area"
+                      to={isAdmin ? "/admin" : "/area"}
                       className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                       onClick={() => setPerfilAberto(false)}
                     >
@@ -206,40 +227,54 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
           >
             Finalidade
           </button>
-          {session && isAdmin && (
-            <Link
-              to="/admin"
-              className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block"
-              onClick={() => setMenuAberto(false)}
-            >
-              Eventos
-            </Link>
+
+          {/* Admin links mobile */}
+          {logado && isAdmin && (
+            <>
+              <Link
+                to="/admin"
+                className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block"
+                onClick={() => setMenuAberto(false)}
+              >
+                Eventos
+              </Link>
+              <Link
+                to="/admin/associados"
+                className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block"
+                onClick={() => setMenuAberto(false)}
+              >
+                Associados
+              </Link>
+            </>
           )}
-          {session && isAdmin && (
-            <Link
-              to="/admin/associados"
-              className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block"
-              onClick={() => setMenuAberto(false)}
-            >
-              Associados
-            </Link>
-          )}
-          {session && (
+
+          {/* Associado links mobile */}
+          {ehAssociado && (
             <>
               <Link
                 to="/area"
                 className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block"
                 onClick={() => setMenuAberto(false)}
               >
-                Minha area
+                Eventos
               </Link>
-              <button
-                onClick={handleSair}
-                className="text-left text-red-600 font-medium py-2.5"
+              <Link
+                to="/area/inscricoes"
+                className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block"
+                onClick={() => setMenuAberto(false)}
               >
-                Sair
-              </button>
+                Minhas inscrições
+              </Link>
             </>
+          )}
+
+          {logado && (
+            <button
+              onClick={handleSair}
+              className="text-left text-red-600 font-medium py-2.5"
+            >
+              Sair
+            </button>
           )}
         </div>
       )}
