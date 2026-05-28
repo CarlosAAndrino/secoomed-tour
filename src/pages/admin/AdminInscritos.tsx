@@ -1,180 +1,401 @@
-import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, AlertCircle } from 'lucide-react'
-import Header from '@/components/layout/Header'
-import { supabase } from '@/lib/supabase'
-import type { Associado, Dependente } from '@/types/database'
-import { format } from 'date-fns'
-import { ptBR } from 'date-fns/locale'
-import { useVisibilityReload } from '@/hooks/useVisibilityReload'
+import { useEffect, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  ArrowLeft,
+  AlertCircle,
+  CheckCircle,
+  DollarSign,
+} from "lucide-react";
+import Header from "@/components/layout/Header";
+import { supabase } from "@/lib/supabase";
+import type { InscricaoEvento, EventoLista } from "@/types/database";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
+
+// ─── Funções utilitárias puras ────────────────────────────────────────────────
 
 function formatarData(data: string): string {
-  return format(new Date(data), 'dd/MM/yyyy', { locale: ptBR })
+  return format(new Date(data), "dd/MM/yyyy", { locale: ptBR });
 }
 
-function formatarCpf(cpf: string | null | undefined): string {
-  if (!cpf) return '—'
-  return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
+function formatarMoeda(valor: number): string {
+  return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-export default function AdminDependentes() {
-  const { associadoId } = useParams<{ associadoId: string }>()
-  const navigate = useNavigate()
+function labelTipo(tipo: string): string {
+  switch (tipo) {
+    case "titular":
+      return "Associado(a)";
+    case "dependente":
+      return "Dependente";
+    case "convidado":
+      return "Convidado";
+    default:
+      return tipo;
+  }
+}
 
-  const [associado, setAssociado]     = useState<Associado | null>(null)
-  const [dependentes, setDependentes] = useState<Dependente[]>([])
-  const [carregando, setCarregando]   = useState(true)
-  const [erro, setErro]               = useState('')
+// ─── AdminInscritos ───────────────────────────────────────────────────────────
 
-  const { reloadKey, forcarReload } = useVisibilityReload()
+export default function AdminInscritos() {
+  const { eventoId } = useParams<{ eventoId: string }>();
+  const navigate = useNavigate();
+
+  const [evento, setEvento] = useState<EventoLista | null>(null);
+  const [inscritos, setInscritos] = useState<InscricaoEvento[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  const [feedback, setFeedback] = useState("");
+  const [atualizandoId, setAtualizandoId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!associadoId) return
+    if (!eventoId) return;
 
-    let mounted = true
-    const controller = new AbortController()
-    const timeoutId  = setTimeout(() => controller.abort(), 10_000)
+    let mounted = true;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
 
     const buscar = async () => {
-      setCarregando(true)
-      setErro('')
+      setCarregando(true);
+      setErro("");
+
       try {
         const [
-          { data: assoc, error: assocError },
-          { data: deps,  error: depsError  },
+          { data: ev, error: evError },
+          { data: insc, error: inscError },
         ] = await Promise.all([
           supabase
-            .from('associados')
-            .select('*')
-            .eq('id', associadoId)
+            .from("vw_eventos_lista")
+            .select("*")
+            .eq("id", eventoId)
             .abortSignal(controller.signal)
             .single(),
           supabase
-            .from('dependentes')
-            .select('*')
-            .eq('associado_id', associadoId)
+            .from("vw_inscricoes_evento")
+            .select("*")
+            .eq("evento_id", eventoId)
+            .eq("status", "confirmada")
             .abortSignal(controller.signal)
-            .order('nr_sequencia'),
-        ])
+            .order("inscrito_em", { ascending: true }),
+        ]);
 
-        clearTimeout(timeoutId)
-        if (!mounted) return
+        clearTimeout(timeoutId);
+        if (!mounted) return;
 
-        if (assocError || depsError) {
-          const error = assocError ?? depsError
-          if (error?.code === 'PGRST301' || error?.message?.includes('JWT')) {
-            window.location.href = '/entrar'
-            return
+        if (evError || inscError) {
+          const error = evError ?? inscError;
+          if (error?.code === "PGRST301" || error?.message?.includes("JWT")) {
+            window.location.href = "/entrar";
+            return;
           }
-          setErro('Não foi possível carregar os dados. Tente novamente.')
-          return
+          setErro("Não foi possível carregar os inscritos. Tente novamente.");
+          return;
         }
 
-        if (!assoc) {
-          setErro('Associado não encontrado.')
-          return
-        }
-
-        setAssociado(assoc as Associado)
-        setDependentes((deps as Dependente[]) ?? [])
+        setEvento((ev as EventoLista) ?? null);
+        setInscritos((insc as InscricaoEvento[]) ?? []);
       } catch (err: unknown) {
-        clearTimeout(timeoutId)
-        if (!mounted) return
-        if (err instanceof Error && err.name === 'AbortError') {
-          setErro('A requisição demorou muito. Verifique sua conexão.')
+        clearTimeout(timeoutId);
+        if (!mounted) return;
+        if (err instanceof Error && err.name === "AbortError") {
+          setErro("A requisição demorou muito. Verifique sua conexão.");
         } else {
-          setErro('Erro de conexão. Verifique sua internet.')
+          setErro("Erro de conexão. Verifique sua internet.");
         }
       } finally {
-        if (mounted) setCarregando(false)
+        if (mounted) setCarregando(false);
       }
-    }
+    };
 
-    buscar()
+    buscar();
 
     return () => {
-      mounted = false
-      clearTimeout(timeoutId)
-      controller.abort()
+      mounted = false;
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [eventoId, reloadKey]);
+
+  // ─── Recarrega ao voltar do background ──────────────────────────────────────
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        setReloadKey((k) => k + 1);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
+  // ─── Toggle pagamento ──────────────────────────────────────────────────────
+  async function handleTogglePago(inscricao: InscricaoEvento) {
+    setAtualizandoId(inscricao.inscricao_id);
+
+    const novoPago = !inscricao.pago;
+    const { error } = await supabase
+      .from("inscricoes")
+      .update({ pago: novoPago })
+      .eq("id", inscricao.inscricao_id);
+
+    if (error) {
+      setFeedback("Erro ao atualizar pagamento.");
+    } else {
+      setInscritos((prev) =>
+        prev.map((i) =>
+          i.inscricao_id === inscricao.inscricao_id
+            ? { ...i, pago: novoPago }
+            : i
+        )
+      );
+      setFeedback(
+        novoPago
+          ? `Pagamento de ${inscricao.participante_nome.split(" ")[0]} confirmado.`
+          : `Pagamento de ${inscricao.participante_nome.split(" ")[0]} desmarcado.`
+      );
     }
-  }, [associadoId, reloadKey])
+
+    setAtualizandoId(null);
+    setTimeout(() => setFeedback(""), 3000);
+  }
+
+  // ─── Marcar todos como pagos ────────────────────────────────────────────────
+  async function handleMarcarTodosPagos() {
+    if (!eventoId) return;
+    const naoPagos = confirmados.filter((i) => !i.pago);
+    if (naoPagos.length === 0) return;
+
+    setAtualizandoId("todos");
+
+    const { error } = await supabase
+      .from("inscricoes")
+      .update({ pago: true })
+      .eq("evento_id", eventoId)
+      .eq("status", "confirmada")
+      .eq("pago", false);
+
+    if (error) {
+      setFeedback("Erro ao atualizar pagamentos.");
+    } else {
+      setInscritos((prev) =>
+        prev.map((i) => ({ ...i, pago: true }))
+      );
+      setFeedback(`${naoPagos.length} inscrição(ões) marcada(s) como paga(s).`);
+    }
+
+    setAtualizandoId(null);
+    setTimeout(() => setFeedback(""), 3000);
+  }
+
+  const confirmados = inscritos.filter((i) => i.status === "confirmada");
+  const totalPagos = confirmados.filter((i) => i.pago).length;
+  const valorTotal = confirmados.reduce(
+    (acc, i) => acc + (i.valor_inscricao ?? 0),
+    0
+  );
+  const valorPago = confirmados
+    .filter((i) => i.pago)
+    .reduce((acc, i) => acc + (i.valor_inscricao ?? 0), 0);
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
       <Header />
-      <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 pt-28 pb-12">
 
+      {/* Toast */}
+      {feedback && (
+        <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-gray-800 text-white text-sm font-medium px-5 py-3 rounded-xl shadow-lg animate-fade-in">
+          <CheckCircle size={16} className="text-green-400" />
+          {feedback}
+        </div>
+      )}
+
+      <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 pt-28 pb-12">
+        {/* Voltar */}
         <button
-          onClick={() => navigate('/admin/associados')}
+          onClick={() => navigate("/admin")}
           className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition-colors mb-6"
         >
           <ArrowLeft size={16} />
-          Voltar para associados
+          Voltar para eventos
         </button>
 
+        {/* Título */}
+        <div className="text-center mb-8">
+          <h1 className="font-display text-2xl font-bold text-gray-800">
+            {evento?.destino ?? (carregando ? "Carregando..." : "Evento")}
+          </h1>
+          {evento && (
+            <p className="text-gray-500 text-sm mt-1">
+              {formatarData(evento.data_evento)} &mdash;{" "}
+              {confirmados.length} inscrito(s)
+            </p>
+          )}
+        </div>
+
+        {/* Loading */}
         {carregando && (
           <div className="flex justify-center py-20">
             <div className="w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full animate-spin" />
           </div>
         )}
 
+        {/* Erro */}
         {!carregando && erro && (
           <div className="flex flex-col items-center gap-4 py-16">
             <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
               <AlertCircle size={22} className="text-red-600" />
             </div>
             <p className="text-gray-600 text-sm">{erro}</p>
-            <button onClick={forcarReload} className="btn-primary" style={{ backgroundColor: '#16a34a' }}>
+            <button
+              onClick={() => setReloadKey((k) => k + 1)}
+              className="btn-primary"
+              style={{ backgroundColor: "#16a34a" }}
+            >
               Tentar novamente
             </button>
           </div>
         )}
 
-        {!carregando && !erro && associado && (
-          <>
-            <div className="text-center mb-8">
-              <h1 className="font-display text-2xl font-bold text-gray-800">
-                Dependentes de {associado.nome.split(' ')[0]}
-              </h1>
-              <p className="text-gray-500 text-sm mt-1">
-                Matrícula #{associado.nr_inscricao} · CPF: {formatarCpf(associado.cpf)}
-              </p>
-            </div>
-
-            <div className="bg-white rounded-2xl shadow-card border border-surface-200 overflow-hidden">
-              {dependentes.length === 0 ? (
-                <p className="text-center text-gray-500 py-16">Nenhum dependente cadastrado.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-surface-200 bg-surface-50">
-                        <th className="text-left px-5 py-3 font-semibold text-gray-600">#</th>
-                        <th className="text-left px-5 py-3 font-semibold text-gray-600">Nome</th>
-                        <th className="text-left px-5 py-3 font-semibold text-gray-600">CPF</th>
-                        <th className="text-left px-5 py-3 font-semibold text-gray-600">Nascimento</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dependentes.map((dep) => (
-                        <tr key={dep.id} className="border-b border-surface-100 last:border-0 hover:bg-surface-50 transition-colors">
-                          <td className="px-5 py-3 text-gray-500">{dep.nr_sequencia}</td>
-                          <td className="px-5 py-3 font-medium text-gray-800">{dep.nome}</td>
-                          <td className="px-5 py-3 text-gray-500">{formatarCpf(dep.cpf)}</td>
-                          <td className="px-5 py-3 text-gray-500">
-                            {dep.data_nascimento ? formatarData(dep.data_nascimento) : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+        {/* Resumo financeiro + botão marcar todos */}
+        {!carregando && !erro && confirmados.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-card border border-surface-200 px-6 py-4 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex flex-wrap gap-6 text-sm">
+              <div className="flex items-center gap-2">
+                <DollarSign size={16} className="text-green-600" />
+                <span className="text-gray-600">
+                  Total:{" "}
+                  <strong className="text-gray-800">
+                    {formatarMoeda(valorTotal)}
+                  </strong>
+                </span>
+              </div>
+              <div className="text-gray-600">
+                Pagos:{" "}
+                <strong className="text-green-700">
+                  {formatarMoeda(valorPago)}
+                </strong>{" "}
+                <span className="text-gray-400">
+                  ({totalPagos}/{confirmados.length})
+                </span>
+              </div>
+              {valorTotal - valorPago > 0 && (
+                <div className="text-gray-600">
+                  Pendente:{" "}
+                  <strong className="text-amber-600">
+                    {formatarMoeda(valorTotal - valorPago)}
+                  </strong>
                 </div>
               )}
             </div>
-          </>
+
+            {totalPagos < confirmados.length && (
+              <button
+                onClick={handleMarcarTodosPagos}
+                disabled={atualizandoId === "todos"}
+                className="text-sm font-semibold text-white px-4 py-2 rounded-xl transition-colors hover:opacity-90 flex-shrink-0"
+                style={{ backgroundColor: "#16a34a" }}
+              >
+                {atualizandoId === "todos"
+                  ? "Atualizando..."
+                  : "Marcar todos como pagos"}
+              </button>
+            )}
+          </div>
         )}
 
+        {/* Tabela */}
+        {!carregando && !erro && (
+          <div className="bg-white rounded-2xl shadow-card border border-surface-200 overflow-hidden">
+            {confirmados.length === 0 ? (
+              <p className="text-center text-gray-500 py-16">
+                Nenhum inscrito confirmado neste evento.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-surface-200 bg-surface-50">
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600">
+                        #
+                      </th>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600">
+                        Nome
+                      </th>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600">
+                        Tipo
+                      </th>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600">
+                        Valor
+                      </th>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600">
+                        ID Assoc.
+                      </th>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600">
+                        Reserva
+                      </th>
+                      <th className="text-center px-5 py-3 font-semibold text-gray-600">
+                        Pago
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {confirmados.map((inscrito, index) => (
+                      <tr
+                        key={inscrito.inscricao_id}
+                        className="border-b border-surface-100 last:border-0 hover:bg-surface-50 transition-colors"
+                      >
+                        <td className="px-5 py-3 text-gray-500 font-mono">
+                          #{String(index + 1).padStart(2, "0")}
+                        </td>
+                        <td className="px-5 py-3 font-medium text-gray-800">
+                          {inscrito.participante_nome}
+                        </td>
+                        <td className="px-5 py-3 text-gray-600">
+                          {labelTipo(inscrito.tipo_participante)}
+                        </td>
+                        <td className="px-5 py-3 text-gray-600">
+                          {inscrito.valor_inscricao != null
+                            ? formatarMoeda(inscrito.valor_inscricao)
+                            : "—"}
+                        </td>
+                        <td className="px-5 py-3 text-gray-600">
+                          {inscrito.nr_inscricao}
+                        </td>
+                        <td className="px-5 py-3 text-gray-500">
+                          {formatarData(inscrito.inscrito_em)}
+                        </td>
+                        <td className="px-5 py-3 text-center">
+                          <button
+                            onClick={() => handleTogglePago(inscrito)}
+                            disabled={atualizandoId === inscrito.inscricao_id}
+                            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                              inscrito.pago
+                                ? "bg-green-100 text-green-700 hover:bg-green-200"
+                                : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+                            }`}
+                            title={
+                              inscrito.pago
+                                ? "Clique para desmarcar pagamento"
+                                : "Clique para marcar como pago"
+                            }
+                          >
+                            {atualizandoId === inscrito.inscricao_id ? (
+                              <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <DollarSign size={16} />
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </main>
     </div>
-  )
+  );
 }

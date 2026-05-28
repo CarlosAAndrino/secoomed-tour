@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Menu, X, User, LogOut, ChevronDown } from "lucide-react";
+import { Menu, X, User, LogOut, ChevronDown, Settings } from "lucide-react";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -19,7 +19,6 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
   const logado = !!session;
   const ehAssociado = logado && !isAdmin;
 
-  // Fecha o dropdown ao clicar fora
   useEffect(() => {
     function handleClickFora(e: MouseEvent) {
       if (perfilRef.current && !perfilRef.current.contains(e.target as Node)) {
@@ -79,7 +78,6 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
     <header className="fixed top-0 left-0 right-0 z-50 bg-white shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 md:h-20">
-          {/* Logo */}
           <Link to="/">
             <img
               src="/images/Logo.png"
@@ -88,7 +86,6 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
             />
           </Link>
 
-          {/* Nav desktop */}
           <nav className="hidden md:flex items-center gap-8">
             <button
               onClick={() => scrollPara("quem-somos")}
@@ -103,46 +100,30 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
               Finalidade
             </button>
 
-            {/* Admin links */}
             {logado && isAdmin && (
               <>
-                <Link
-                  to="/admin"
-                  className="text-gray-600 hover:text-green-700 font-medium transition-colors"
-                >
+                <Link to="/admin" className="text-gray-600 hover:text-green-700 font-medium transition-colors">
                   Eventos
                 </Link>
-                <Link
-                  to="/admin/associados"
-                  className="text-gray-600 hover:text-green-700 font-medium transition-colors"
-                >
+                <Link to="/admin/associados" className="text-gray-600 hover:text-green-700 font-medium transition-colors">
                   Associados
                 </Link>
               </>
             )}
 
-            {/* Associado links */}
             {ehAssociado && (
               <>
-                <Link
-                  to="/area"
-                  className="text-gray-600 hover:text-green-700 font-medium transition-colors"
-                >
+                <Link to="/area" className="text-gray-600 hover:text-green-700 font-medium transition-colors">
                   Eventos
                 </Link>
-                <Link
-                  to="/area/inscricoes"
-                  className="text-gray-600 hover:text-green-700 font-medium transition-colors"
-                >
+                <Link to="/area/inscricoes" className="text-gray-600 hover:text-green-700 font-medium transition-colors">
                   Minhas inscrições
                 </Link>
               </>
             )}
           </nav>
 
-          {/* Direita */}
           <div className="flex items-center gap-3">
-            {/* Botão Entrar — somente quando não logado */}
             {!logado && mostrarEntrar && (
               <a
                 href="/entrar"
@@ -152,7 +133,6 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
               </a>
             )}
 
-            {/* Perfil — somente quando logado */}
             {logado && (
               <div className="relative" ref={perfilRef}>
                 <button
@@ -176,16 +156,15 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
                   />
                 </button>
 
-                {/* Dropdown */}
                 {perfilAberto && (
                   <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-modal border border-gray-100 py-1 animate-fade-in">
                     <Link
-                      to={isAdmin ? "/admin" : "/area"}
+                      to={isAdmin ? "/admin" : "/area/perfil"}
                       className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                       onClick={() => setPerfilAberto(false)}
                     >
-                      <User size={15} className="text-gray-400" />
-                      Minha área
+                      <Settings size={15} className="text-gray-400" />
+                      Meus dados
                     </Link>
                     <hr className="my-1 border-gray-100" />
                     <button
@@ -200,7 +179,6 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
               </div>
             )}
 
-            {/* Menu hamburguer mobile */}
             <button
               className="md:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-100"
               onClick={() => setMenuAberto(!menuAberto)}
@@ -212,7 +190,6 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
         </div>
       </div>
 
-      {/* Menu mobile expandido */}
       {menuAberto && (
         <div className="md:hidden bg-white border-t border-gray-100 px-4 py-4 flex flex-col gap-1 animate-fade-in">
           <button
@@ -228,51 +205,23 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
             Finalidade
           </button>
 
-          {/* Admin links mobile */}
           {logado && isAdmin && (
             <>
-              <Link
-                to="/admin"
-                className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block"
-                onClick={() => setMenuAberto(false)}
-              >
-                Eventos
-              </Link>
-              <Link
-                to="/admin/associados"
-                className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block"
-                onClick={() => setMenuAberto(false)}
-              >
-                Associados
-              </Link>
+              <Link to="/admin" className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block" onClick={() => setMenuAberto(false)}>Eventos</Link>
+              <Link to="/admin/associados" className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block" onClick={() => setMenuAberto(false)}>Associados</Link>
             </>
           )}
 
-          {/* Associado links mobile */}
           {ehAssociado && (
             <>
-              <Link
-                to="/area"
-                className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block"
-                onClick={() => setMenuAberto(false)}
-              >
-                Eventos
-              </Link>
-              <Link
-                to="/area/inscricoes"
-                className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block"
-                onClick={() => setMenuAberto(false)}
-              >
-                Minhas inscrições
-              </Link>
+              <Link to="/area" className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block" onClick={() => setMenuAberto(false)}>Eventos</Link>
+              <Link to="/area/inscricoes" className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block" onClick={() => setMenuAberto(false)}>Minhas inscrições</Link>
+              <Link to="/area/perfil" className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block" onClick={() => setMenuAberto(false)}>Meus dados</Link>
             </>
           )}
 
           {logado && (
-            <button
-              onClick={handleSair}
-              className="text-left text-red-600 font-medium py-2.5"
-            >
+            <button onClick={handleSair} className="text-left text-red-600 font-medium py-2.5">
               Sair
             </button>
           )}

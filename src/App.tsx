@@ -16,6 +16,7 @@ import AdminAssociados from "./pages/admin/AdminAssociados";
 import AdminDependentes from "./pages/admin/AdminDependentes";
 import AreaEventos from "./pages/associado/AreaEventos";
 import MinhasInscricoes from "./pages/associado/MinhasInscricoes";
+import MeuPerfil from "./pages/associado/MeuPerfil";
 import TimerSessao from "./components/ui/TimerSessao";
 
 function Rotas() {
@@ -99,6 +100,10 @@ function Rotas() {
       <Route
         path="/area/inscricoes"
         element={session ? <MinhasInscricoes /> : <Navigate to="/entrar" replace />}
+      />
+      <Route
+        path="/area/perfil"
+        element={session ? <MeuPerfil /> : <Navigate to="/entrar" replace />}
       />
 
       {/* Catch-all */}

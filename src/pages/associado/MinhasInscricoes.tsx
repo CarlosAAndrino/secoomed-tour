@@ -8,6 +8,7 @@ import {
   CheckCircle,
   XCircle,
   Trash2,
+  DollarSign,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { supabase } from "@/lib/supabase";
@@ -33,10 +34,14 @@ function formatarMoeda(valor: number): string {
 
 function labelTipo(tipo: string): string {
   switch (tipo) {
-    case "titular":    return "Titular";
-    case "dependente": return "Dependente";
-    case "convidado":  return "Convidado";
-    default:           return tipo;
+    case "titular":
+      return "Titular";
+    case "dependente":
+      return "Dependente";
+    case "convidado":
+      return "Convidado";
+    default:
+      return tipo;
   }
 }
 
@@ -75,6 +80,7 @@ function CardInscricao({
   onCancelar,
 }: CardInscricaoProps) {
   const confirmada = inscricao.status === "confirmada";
+  const podeCancelar = confirmada && inscricao.pode_cancelar;
 
   return (
     <>
@@ -91,6 +97,11 @@ function CardInscricao({
                 {inscricao.evento_destino}
               </span>
               {badgeStatusInscricao(inscricao.status)}
+              {inscricao.pago && (
+                <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                  <DollarSign size={12} /> Pago
+                </span>
+              )}
             </div>
 
             <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-2">
@@ -102,24 +113,35 @@ function CardInscricao({
 
             <div className="flex flex-wrap gap-4 text-sm text-gray-500">
               <span>
-                Participante: <strong className="text-gray-700">{inscricao.participante_nome}</strong>
+                Participante:{" "}
+                <strong className="text-gray-700">
+                  {inscricao.participante_nome}
+                </strong>
               </span>
               <span>Tipo: {labelTipo(inscricao.tipo_participante)}</span>
-              {inscricao.valor_inscricao && (
+              {inscricao.valor_inscricao != null && (
                 <span>Valor: {formatarMoeda(inscricao.valor_inscricao)}</span>
               )}
-              <span>Inscrito em: {formatarDataCurta(inscricao.inscrito_em)}</span>
+              <span>
+                Inscrito em: {formatarDataCurta(inscricao.inscrito_em)}
+              </span>
             </div>
 
-            {confirmada && inscricao.pode_cancelar && (
+            {/* Mensagem de cancelamento */}
+            {confirmada && inscricao.pago && (
+              <p className="text-xs text-emerald-600 mt-2">
+                Inscrição paga — cancelamento bloqueado
+              </p>
+            )}
+            {podeCancelar && (
               <p className="text-xs text-gray-400 mt-2">
-                Cancelamento até {formatarDataCurta(inscricao.data_limite_cancelamento)}
+                Cancelamento até{" "}
+                {formatarDataCurta(inscricao.data_limite_cancelamento)}
               </p>
             )}
           </div>
 
-          {/* Botão cancelar — só para titular confirmado com prazo válido */}
-          {confirmada && inscricao.pode_cancelar && inscricao.tipo_participante === "titular" && (
+          {podeCancelar && (
             <button
               onClick={() => onAbrirCancelamento(inscricao.inscricao_id)}
               className="flex items-center gap-2 text-sm font-medium text-red-600 hover:text-red-700 px-3 py-2 rounded-lg hover:bg-red-50 transition-colors flex-shrink-0"
@@ -131,7 +153,6 @@ function CardInscricao({
         </div>
       </div>
 
-      {/* Modal de confirmação de cancelamento */}
       {cancelandoId === inscricao.inscricao_id && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
           <div className="bg-white rounded-2xl shadow-modal p-8 max-w-sm w-full mx-4 text-center">
@@ -144,10 +165,14 @@ function CardInscricao({
             <p className="text-gray-500 text-sm mb-2">
               Evento: <strong>{inscricao.evento_destino}</strong>
             </p>
+            <p className="text-gray-500 text-sm mb-2">
+              Participante: <strong>{inscricao.participante_nome}</strong> (
+              {labelTipo(inscricao.tipo_participante)})
+            </p>
             <p className="text-gray-500 text-sm mb-6">
               {inscricao.tipo_participante === "titular"
                 ? "Ao cancelar como titular, todas as inscrições do seu grupo (dependentes e convidados) também serão canceladas."
-                : "Esta inscrição será cancelada permanentemente."}
+                : "Apenas esta inscrição individual será cancelada."}
             </p>
             <div className="flex gap-3">
               <button
@@ -185,7 +210,6 @@ export default function MinhasInscricoes() {
   const [processando, setProcessando] = useState(false);
   const [feedback, setFeedback] = useState("");
 
-  // ─── Busca inscrições ─────────────────────────────────────────────────────
   useEffect(() => {
     let mounted = true;
     const controller = new AbortController();
@@ -237,7 +261,6 @@ export default function MinhasInscricoes() {
     };
   }, [reloadKey]);
 
-  // ─── Recarrega ao voltar do background ────────────────────────────────────
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
@@ -245,10 +268,10 @@ export default function MinhasInscricoes() {
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
-  // ─── Cancelamento ─────────────────────────────────────────────────────────
   async function handleCancelar(inscricao: MinhaInscricao) {
     setProcessando(true);
 
@@ -257,13 +280,15 @@ export default function MinhasInscricoes() {
         p_inscricao_id: inscricao.inscricao_id,
       });
 
+      const resultado = data as Record<string, unknown> | null;
+
       if (error) {
         setFeedback("Erro ao cancelar. Tente novamente.");
-      } else if (data?.erro) {
-        setFeedback(data.erro);
+      } else if (resultado?.erro) {
+        setFeedback(resultado.erro as string);
       } else {
         setFeedback(
-          data?.mensagem ?? "Inscrição cancelada com sucesso."
+          (resultado?.mensagem as string) ?? "Inscrição cancelada com sucesso."
         );
         setReloadKey((k) => k + 1);
       }
@@ -276,15 +301,13 @@ export default function MinhasInscricoes() {
     }
   }
 
-  // Separa confirmadas e canceladas
   const confirmadas = inscricoes.filter((i) => i.status === "confirmada");
-  const canceladas  = inscricoes.filter((i) => i.status === "cancelada");
+  const canceladas = inscricoes.filter((i) => i.status === "cancelada");
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
       <Header />
 
-      {/* Toast */}
       {feedback && (
         <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-gray-800 text-white text-sm font-medium px-5 py-3 rounded-xl shadow-lg animate-fade-in">
           <CheckCircle size={16} className="text-green-400" />
@@ -293,8 +316,6 @@ export default function MinhasInscricoes() {
       )}
 
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 pt-28 pb-12">
-
-        {/* Voltar */}
         <button
           onClick={() => navigate("/area")}
           className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition-colors mb-6"
@@ -303,19 +324,16 @@ export default function MinhasInscricoes() {
           Voltar para eventos
         </button>
 
-        {/* Título */}
         <h1 className="font-display text-2xl font-bold text-gray-800 mb-8">
           Minhas inscrições
         </h1>
 
-        {/* Loading */}
         {carregando && (
           <div className="flex justify-center py-20">
             <div className="w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full animate-spin" />
           </div>
         )}
 
-        {/* Erro */}
         {!carregando && erro && (
           <div className="flex flex-col items-center gap-4 py-16">
             <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
@@ -332,7 +350,6 @@ export default function MinhasInscricoes() {
           </div>
         )}
 
-        {/* Inscrições confirmadas */}
         {!carregando && !erro && (
           <div className="flex flex-col gap-3">
             {confirmadas.length === 0 && canceladas.length === 0 && (
@@ -354,7 +371,6 @@ export default function MinhasInscricoes() {
           </div>
         )}
 
-        {/* Inscrições canceladas */}
         {!carregando && !erro && canceladas.length > 0 && (
           <div className="mt-8">
             <h2 className="text-sm font-medium text-gray-400 mb-3">

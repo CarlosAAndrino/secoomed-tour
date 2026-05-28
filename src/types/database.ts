@@ -55,6 +55,7 @@ export interface Inscricao {
   nome_convidado: string | null;
   cpf_convidado: string | null;
   status: "confirmada" | "cancelada";
+  pago: boolean;
   created_at: string;
 }
 
@@ -63,6 +64,7 @@ export interface MinhaInscricao {
   status: "confirmada" | "cancelada";
   tipo_participante: "titular" | "dependente" | "convidado";
   inscrito_em: string;
+  pago: boolean;
   dependente_id: string | null;
   associado_id: string;
   evento_id: string;
@@ -84,6 +86,7 @@ export interface InscricaoEvento {
   status: "confirmada" | "cancelada";
   tipo_participante: "titular" | "dependente" | "convidado";
   inscrito_em: string;
+  pago: boolean;
   evento_destino: string;
   data_evento: string;
   associado_id: string;
