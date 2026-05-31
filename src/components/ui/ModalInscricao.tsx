@@ -7,6 +7,8 @@ import {
   CheckCircle,
   AlertCircle,
   Trash2,
+  Mail,
+  AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { EventoLista, ParticipanteInscricao } from "@/types/database";
@@ -58,6 +60,7 @@ export default function ModalInscricao({ evento, onFechar, onSucesso }: Props) {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState(false);
+  const [avisoEmail, setAvisoEmail] = useState("");
 
   // ─── Reset ao trocar de evento ────────────────────────────────────────────
   const [prevEventoId, setPrevEventoId] = useState<string | null>(null);
@@ -69,6 +72,7 @@ export default function ModalInscricao({ evento, onFechar, onSucesso }: Props) {
     setConvidados([]);
     setErro("");
     setSucesso(false);
+    setAvisoEmail("");
     setDependentes([]);
     setCarregandoDeps(evento.aceita_dependente);
   }
@@ -217,9 +221,26 @@ export default function ModalInscricao({ evento, onFechar, onSucesso }: Props) {
         return;
       }
 
+      // Inscrição realizada — tenta enviar notificação por e-mail
       setSalvando(false);
       setSucesso(true);
-      setTimeout(onSucesso, 2000);
+
+      try {
+        const { data: emailData } = await supabase.functions.invoke(
+          "notificar-inscricao",
+          { body: { evento_id: evento.id } }
+        );
+
+        const emailResult = emailData as Record<string, unknown> | null;
+
+        if (emailResult?.sem_email) {
+          setAvisoEmail(emailResult.mensagem as string);
+        }
+      } catch {
+        // Falha no envio de e-mail não impede o sucesso da inscrição
+      }
+
+      setTimeout(onSucesso, 3000);
     } catch {
       setErro("Erro inesperado. Tente novamente.");
       setSalvando(false);
@@ -241,9 +262,24 @@ export default function ModalInscricao({ evento, onFechar, onSucesso }: Props) {
           <h2 className="font-display text-xl font-bold text-gray-800 mb-2">
             Inscrição realizada!
           </h2>
-          <p className="text-gray-500 text-sm">
+          <p className="text-gray-500 text-sm mb-4">
             {totalParticipantes} participante(s) inscrito(s) com sucesso.
           </p>
+
+          {avisoEmail ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-2 text-left">
+              <AlertTriangle
+                size={16}
+                className="text-amber-500 flex-shrink-0 mt-0.5"
+              />
+              <p className="text-amber-700 text-sm">{avisoEmail}</p>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center gap-2 text-sm text-green-600">
+              <Mail size={16} />
+              E-mail de confirmação enviado
+            </div>
+          )}
         </div>
       </div>
     );

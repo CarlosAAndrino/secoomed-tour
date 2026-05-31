@@ -9,6 +9,8 @@ export interface Associado {
   ativo: boolean;
   user_id: string | null;
   primeiro_acesso: boolean;
+  email: string | null;
+  email_verificado: boolean;
 }
 
 export interface Dependente {
@@ -67,6 +69,8 @@ export interface MinhaInscricao {
   pago: boolean;
   dependente_id: string | null;
   associado_id: string;
+  associado_email: string | null;
+  email_verificado: boolean;
   evento_id: string;
   evento_destino: string;
   data_evento: string;

@@ -9,12 +9,26 @@ import {
   XCircle,
   Trash2,
   DollarSign,
+  ChevronDown,
+  ChevronUp,
+  RotateCcw,
+  Users,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { supabase } from "@/lib/supabase";
-import type { MinhaInscricao } from "@/types/database";
+import type { MinhaInscricao, ParticipanteInscricao } from "@/types/database";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+
+interface GrupoEvento {
+  eventoId: string;
+  destino: string;
+  dataEvento: string;
+  statusEvento: string;
+  inscricoes: MinhaInscricao[];
+}
 
 // ─── Funções utilitárias puras ────────────────────────────────────────────────
 
@@ -45,24 +59,37 @@ function labelTipo(tipo: string): string {
   }
 }
 
-function badgeStatusInscricao(status: string): React.ReactNode {
-  if (status === "confirmada") {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-        <CheckCircle size={12} /> Confirmada
-      </span>
-    );
+function agruparPorEvento(inscricoes: MinhaInscricao[]): GrupoEvento[] {
+  const mapa = new Map<string, GrupoEvento>();
+
+  for (const insc of inscricoes) {
+    const grupo = mapa.get(insc.evento_id);
+    if (grupo) {
+      grupo.inscricoes.push(insc);
+    } else {
+      mapa.set(insc.evento_id, {
+        eventoId: insc.evento_id,
+        destino: insc.evento_destino,
+        dataEvento: insc.data_evento,
+        statusEvento: insc.status_evento,
+        inscricoes: [insc],
+      });
+    }
   }
-  return (
-    <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-600">
-      <XCircle size={12} /> Cancelada
-    </span>
+
+  return Array.from(mapa.values());
+}
+
+function ordenarParticipantes(inscricoes: MinhaInscricao[]): MinhaInscricao[] {
+  const ordem: Record<string, number> = { titular: 0, dependente: 1, convidado: 2 };
+  return [...inscricoes].sort(
+    (a, b) => (ordem[a.tipo_participante] ?? 3) - (ordem[b.tipo_participante] ?? 3)
   );
 }
 
-// ─── CardInscricao — fora do componente pai ───────────────────────────────────
+// ─── LinhaConfirmada — participante confirmado ────────────────────────────────
 
-interface CardInscricaoProps {
+interface LinhaConfirmadaProps {
   inscricao: MinhaInscricao;
   cancelandoId: string | null;
   processando: boolean;
@@ -71,88 +98,56 @@ interface CardInscricaoProps {
   onCancelar: (inscricao: MinhaInscricao) => void;
 }
 
-function CardInscricao({
+function LinhaConfirmada({
   inscricao,
   cancelandoId,
   processando,
   onAbrirCancelamento,
   onFecharCancelamento,
   onCancelar,
-}: CardInscricaoProps) {
-  const confirmada = inscricao.status === "confirmada";
-  const podeCancelar = confirmada && inscricao.pode_cancelar;
+}: LinhaConfirmadaProps) {
+  const podeCancelar = inscricao.pode_cancelar;
 
   return (
     <>
-      <div
-        className={`bg-white rounded-2xl shadow-card border border-surface-200 px-6 py-4 ${
-          !confirmada ? "opacity-50" : ""
-        }`}
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-2 mb-1">
-              <MapPin size={16} className="text-green-600 flex-shrink-0" />
-              <span className="font-semibold text-gray-800">
-                {inscricao.evento_destino}
-              </span>
-              {badgeStatusInscricao(inscricao.status)}
-              {inscricao.pago && (
-                <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                  <DollarSign size={12} /> Pago
-                </span>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-2">
-              <span className="flex items-center gap-1">
-                <CalendarDays size={14} />
-                {formatarData(inscricao.data_evento)}
-              </span>
-            </div>
-
-            <div className="flex flex-wrap gap-4 text-sm text-gray-500">
-              <span>
-                Participante:{" "}
-                <strong className="text-gray-700">
-                  {inscricao.participante_nome}
-                </strong>
-              </span>
-              <span>Tipo: {labelTipo(inscricao.tipo_participante)}</span>
-              {inscricao.valor_inscricao != null && (
-                <span>Valor: {formatarMoeda(inscricao.valor_inscricao)}</span>
-              )}
-              <span>
-                Inscrito em: {formatarDataCurta(inscricao.inscrito_em)}
-              </span>
-            </div>
-
-            {/* Mensagem de cancelamento */}
-            {confirmada && inscricao.pago && (
-              <p className="text-xs text-emerald-600 mt-2">
-                Inscrição paga — cancelamento bloqueado
-              </p>
-            )}
-            {podeCancelar && (
-              <p className="text-xs text-gray-400 mt-2">
-                Cancelamento até{" "}
-                {formatarDataCurta(inscricao.data_limite_cancelamento)}
-              </p>
-            )}
-          </div>
-
-          {podeCancelar && (
-            <button
-              onClick={() => onAbrirCancelamento(inscricao.inscricao_id)}
-              className="flex items-center gap-2 text-sm font-medium text-red-600 hover:text-red-700 px-3 py-2 rounded-lg hover:bg-red-50 transition-colors flex-shrink-0"
-            >
-              <Trash2 size={16} />
-              Cancelar
-            </button>
+      <div className="flex items-center justify-between py-2.5 px-4 rounded-lg hover:bg-gray-50 transition-colors">
+        <div className="flex items-center gap-3 flex-1 min-w-0 flex-wrap">
+          <span className="text-sm font-medium text-gray-800">
+            {inscricao.participante_nome}
+          </span>
+          <span className="text-xs text-gray-400">
+            {labelTipo(inscricao.tipo_participante)}
+          </span>
+          {inscricao.pago && (
+            <span className="inline-flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+              <DollarSign size={10} /> Pago
+            </span>
+          )}
+          {inscricao.valor_inscricao != null && (
+            <span className="text-xs text-gray-400">
+              {formatarMoeda(inscricao.valor_inscricao)}
+            </span>
           )}
         </div>
+
+        {podeCancelar && (
+          <button
+            onClick={() => onAbrirCancelamento(inscricao.inscricao_id)}
+            className="text-xs font-medium text-red-500 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50 transition-colors flex-shrink-0"
+            title="Cancelar esta inscrição"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
+
+        {inscricao.pago && (
+          <span className="text-xs text-emerald-500 flex-shrink-0">
+            Cancelamento bloqueado
+          </span>
+        )}
       </div>
 
+      {/* Modal de confirmação de cancelamento */}
       {cancelandoId === inscricao.inscricao_id && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
           <div className="bg-white rounded-2xl shadow-modal p-8 max-w-sm w-full mx-4 text-center">
@@ -162,9 +157,6 @@ function CardInscricao({
             <h2 className="font-display text-lg font-bold text-gray-800 mb-2">
               Cancelar inscrição?
             </h2>
-            <p className="text-gray-500 text-sm mb-2">
-              Evento: <strong>{inscricao.evento_destino}</strong>
-            </p>
             <p className="text-gray-500 text-sm mb-2">
               Participante: <strong>{inscricao.participante_nome}</strong> (
               {labelTipo(inscricao.tipo_participante)})
@@ -187,13 +179,193 @@ function CardInscricao({
                 disabled={processando}
                 className="flex-1 py-2.5 rounded-xl font-semibold text-white text-sm bg-red-500 hover:bg-red-600 transition-colors"
               >
-                {processando ? "Cancelando..." : "Confirmar cancelamento"}
+                {processando ? "Cancelando..." : "Confirmar"}
               </button>
             </div>
           </div>
         </div>
       )}
     </>
+  );
+}
+
+// ─── LinhaCancelada — participante cancelado com botão de reinscrição ─────────
+
+interface LinhaCanceladaProps {
+  inscricao: MinhaInscricao;
+  eventoAberto: boolean;
+  reinscrevendoId: string | null;
+  onReinscrever: (inscricao: MinhaInscricao) => void;
+}
+
+function LinhaCancelada({
+  inscricao,
+  eventoAberto,
+  reinscrevendoId,
+  onReinscrever,
+}: LinhaCanceladaProps) {
+  const estaReinscrevendo = reinscrevendoId === inscricao.inscricao_id;
+
+  return (
+    <div className="flex items-center justify-between py-2.5 px-4 rounded-lg hover:bg-gray-50 transition-colors">
+      <div className="flex items-center gap-3 flex-1 min-w-0 flex-wrap">
+        <span className="text-sm text-gray-600">
+          {inscricao.participante_nome}
+        </span>
+        <span className="text-xs text-gray-400">
+          {labelTipo(inscricao.tipo_participante)}
+        </span>
+        {inscricao.valor_inscricao != null && (
+          <span className="text-xs text-gray-400">
+            {formatarMoeda(inscricao.valor_inscricao)}
+          </span>
+        )}
+      </div>
+
+      {eventoAberto && (
+        <button
+          onClick={() => onReinscrever(inscricao)}
+          disabled={estaReinscrevendo || reinscrevendoId !== null}
+          className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex-shrink-0 text-white hover:opacity-90 disabled:opacity-50"
+          style={{ backgroundColor: "#16a34a" }}
+        >
+          <RotateCcw size={12} />
+          {estaReinscrevendo ? "..." : "Reinscrever"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── CardGrupoConfirmado ──────────────────────────────────────────────────────
+
+interface CardGrupoConfirmadoProps {
+  grupo: GrupoEvento;
+  cancelandoId: string | null;
+  processando: boolean;
+  onAbrirCancelamento: (id: string) => void;
+  onFecharCancelamento: () => void;
+  onCancelar: (inscricao: MinhaInscricao) => void;
+}
+
+function CardGrupoConfirmado({
+  grupo,
+  cancelandoId,
+  processando,
+  onAbrirCancelamento,
+  onFecharCancelamento,
+  onCancelar,
+}: CardGrupoConfirmadoProps) {
+  const ordenadas = ordenarParticipantes(grupo.inscricoes);
+  const temPodeCancelar = ordenadas.some((i) => i.pode_cancelar);
+  const primeiraInsc = ordenadas[0];
+
+  return (
+    <div className="bg-white rounded-2xl shadow-card border border-surface-200 overflow-hidden">
+      <div className="px-6 py-4 border-b border-surface-100">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+              <MapPin size={16} className="text-green-600 flex-shrink-0" />
+              {grupo.destino}
+            </h3>
+            <div className="flex flex-wrap gap-4 text-sm text-gray-500 mt-1">
+              <span className="flex items-center gap-1">
+                <CalendarDays size={14} />
+                {formatarData(grupo.dataEvento)}
+              </span>
+              <span className="flex items-center gap-1">
+                <Users size={14} />
+                {grupo.inscricoes.length} participante(s)
+              </span>
+            </div>
+          </div>
+          <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-green-100 text-green-700 flex-shrink-0">
+            <CheckCircle size={12} /> Confirmada
+          </span>
+        </div>
+        {temPodeCancelar && primeiraInsc && (
+          <p className="text-xs text-gray-400 mt-2">
+            Cancelamento até{" "}
+            {formatarDataCurta(primeiraInsc.data_limite_cancelamento)}
+          </p>
+        )}
+      </div>
+
+      <div className="px-2 py-2 divide-y divide-surface-50">
+        {ordenadas.map((insc) => (
+          <LinhaConfirmada
+            key={insc.inscricao_id}
+            inscricao={insc}
+            cancelandoId={cancelandoId}
+            processando={processando}
+            onAbrirCancelamento={onAbrirCancelamento}
+            onFecharCancelamento={onFecharCancelamento}
+            onCancelar={onCancelar}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── CardGrupoCancelado ───────────────────────────────────────────────────────
+
+interface CardGrupoCanceladoProps {
+  grupo: GrupoEvento;
+  reinscrevendoId: string | null;
+  onReinscrever: (inscricao: MinhaInscricao) => void;
+}
+
+function CardGrupoCancelado({
+  grupo,
+  reinscrevendoId,
+  onReinscrever,
+}: CardGrupoCanceladoProps) {
+  const ordenadas = ordenarParticipantes(grupo.inscricoes);
+  const eventoAberto = grupo.statusEvento === "aberto";
+
+  return (
+    <div className="bg-white rounded-2xl shadow-card border border-surface-200 overflow-hidden opacity-60 hover:opacity-80 transition-opacity">
+      <div className="px-6 py-4 border-b border-surface-100">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+              <MapPin size={16} className="text-gray-400 flex-shrink-0" />
+              {grupo.destino}
+            </h3>
+            <div className="flex flex-wrap gap-4 text-sm text-gray-500 mt-1">
+              <span className="flex items-center gap-1">
+                <CalendarDays size={14} />
+                {formatarData(grupo.dataEvento)}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-red-100 text-red-600">
+              <XCircle size={12} /> Cancelada
+            </span>
+            {eventoAberto && (
+              <span className="text-xs text-green-600 font-medium">
+                Inscrições abertas
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="px-2 py-2 divide-y divide-surface-50">
+        {ordenadas.map((insc) => (
+          <LinhaCancelada
+            key={insc.inscricao_id}
+            inscricao={insc}
+            eventoAberto={eventoAberto}
+            reinscrevendoId={reinscrevendoId}
+            onReinscrever={onReinscrever}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -208,8 +380,11 @@ export default function MinhasInscricoes() {
   const [reloadKey, setReloadKey] = useState(0);
   const [cancelandoId, setCancelando] = useState<string | null>(null);
   const [processando, setProcessando] = useState(false);
+  const [reinscrevendoId, setReinscrevendoId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
+  const [canceladasAberto, setCanceladasAberto] = useState(false);
 
+  // ─── Busca inscrições ─────────────────────────────────────────────────────
   useEffect(() => {
     let mounted = true;
     const controller = new AbortController();
@@ -272,6 +447,12 @@ export default function MinhasInscricoes() {
       document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
+  function mostrarFeedback(msg: string) {
+    setFeedback(msg);
+    setTimeout(() => setFeedback(""), 4000);
+  }
+
+  // ─── Cancelamento ─────────────────────────────────────────────────────────
   async function handleCancelar(inscricao: MinhaInscricao) {
     setProcessando(true);
 
@@ -283,26 +464,82 @@ export default function MinhasInscricoes() {
       const resultado = data as Record<string, unknown> | null;
 
       if (error) {
-        setFeedback("Erro ao cancelar. Tente novamente.");
+        mostrarFeedback("Erro ao cancelar. Tente novamente.");
       } else if (resultado?.erro) {
-        setFeedback(resultado.erro as string);
+        mostrarFeedback(resultado.erro as string);
       } else {
-        setFeedback(
-          (resultado?.mensagem as string) ?? "Inscrição cancelada com sucesso."
+        mostrarFeedback(
+          (resultado?.mensagem as string) ?? "Inscrição cancelada."
         );
         setReloadKey((k) => k + 1);
       }
     } catch {
-      setFeedback("Erro inesperado. Tente novamente.");
+      mostrarFeedback("Erro inesperado. Tente novamente.");
     } finally {
       setProcessando(false);
       setCancelando(null);
-      setTimeout(() => setFeedback(""), 4000);
     }
   }
 
+  // ─── Reinscrição individual ───────────────────────────────────────────────
+  async function handleReinscrever(inscricao: MinhaInscricao) {
+    setReinscrevendoId(inscricao.inscricao_id);
+
+    let participante: ParticipanteInscricao;
+
+    if (inscricao.tipo_participante === "titular") {
+      participante = { tipo: "titular" };
+    } else if (
+      inscricao.tipo_participante === "dependente" &&
+      inscricao.dependente_id
+    ) {
+      participante = {
+        tipo: "dependente",
+        dependente_id: inscricao.dependente_id,
+      };
+    } else if (inscricao.tipo_participante === "convidado") {
+      participante = {
+        tipo: "convidado",
+        nome: inscricao.participante_nome,
+        cpf: inscricao.participante_cpf ?? undefined,
+      };
+    } else {
+      mostrarFeedback("Tipo de participante inválido.");
+      setReinscrevendoId(null);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.rpc("reservar_evento", {
+        p_evento_id: inscricao.evento_id,
+        p_participantes: [participante],
+      });
+
+      const resultado = data as Record<string, unknown> | null;
+
+      if (error) {
+        mostrarFeedback("Erro ao reinscrever. Tente novamente.");
+      } else if (resultado?.erro) {
+        mostrarFeedback(resultado.erro as string);
+      } else {
+        mostrarFeedback(
+          `${inscricao.participante_nome.split(" ")[0]} reinscrito(a) com sucesso!`
+        );
+        setReloadKey((k) => k + 1);
+      }
+    } catch {
+      mostrarFeedback("Erro inesperado. Tente novamente.");
+    } finally {
+      setReinscrevendoId(null);
+    }
+  }
+
+  // ─── Agrupamento ──────────────────────────────────────────────────────────
   const confirmadas = inscricoes.filter((i) => i.status === "confirmada");
   const canceladas = inscricoes.filter((i) => i.status === "cancelada");
+
+  const gruposConfirmados = agruparPorEvento(confirmadas);
+  const gruposCancelados = agruparPorEvento(canceladas);
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
@@ -350,17 +587,19 @@ export default function MinhasInscricoes() {
           </div>
         )}
 
+        {/* Confirmadas — agrupadas por evento */}
         {!carregando && !erro && (
-          <div className="flex flex-col gap-3">
-            {confirmadas.length === 0 && canceladas.length === 0 && (
-              <p className="text-center text-gray-500 py-16">
-                Você ainda não tem nenhuma inscrição.
-              </p>
-            )}
-            {confirmadas.map((insc) => (
-              <CardInscricao
-                key={insc.inscricao_id}
-                inscricao={insc}
+          <div className="flex flex-col gap-4">
+            {gruposConfirmados.length === 0 &&
+              gruposCancelados.length === 0 && (
+                <p className="text-center text-gray-500 py-16">
+                  Você ainda não tem nenhuma inscrição.
+                </p>
+              )}
+            {gruposConfirmados.map((grupo) => (
+              <CardGrupoConfirmado
+                key={grupo.eventoId}
+                grupo={grupo}
                 cancelandoId={cancelandoId}
                 processando={processando}
                 onAbrirCancelamento={setCancelando}
@@ -371,24 +610,33 @@ export default function MinhasInscricoes() {
           </div>
         )}
 
-        {!carregando && !erro && canceladas.length > 0 && (
+        {/* Canceladas — dropdown colapsável */}
+        {!carregando && !erro && gruposCancelados.length > 0 && (
           <div className="mt-8">
-            <h2 className="text-sm font-medium text-gray-400 mb-3">
+            <button
+              onClick={() => setCanceladasAberto(!canceladasAberto)}
+              className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors mb-4"
+            >
+              {canceladasAberto ? (
+                <ChevronUp size={16} />
+              ) : (
+                <ChevronDown size={16} />
+              )}
               Inscrições canceladas ({canceladas.length})
-            </h2>
-            <div className="flex flex-col gap-3">
-              {canceladas.map((insc) => (
-                <CardInscricao
-                  key={insc.inscricao_id}
-                  inscricao={insc}
-                  cancelandoId={cancelandoId}
-                  processando={processando}
-                  onAbrirCancelamento={setCancelando}
-                  onFecharCancelamento={() => setCancelando(null)}
-                  onCancelar={handleCancelar}
-                />
-              ))}
-            </div>
+            </button>
+
+            {canceladasAberto && (
+              <div className="flex flex-col gap-4">
+                {gruposCancelados.map((grupo) => (
+                  <CardGrupoCancelado
+                    key={grupo.eventoId}
+                    grupo={grupo}
+                    reinscrevendoId={reinscrevendoId}
+                    onReinscrever={handleReinscrever}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </main>
