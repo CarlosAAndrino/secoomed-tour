@@ -1,479 +1,727 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
-  X,
-  UserCheck,
-  Users,
-  UserPlus,
+  ArrowLeft,
+  User,
+  Phone,
+  Building2,
+  CalendarDays,
+  CreditCard,
   CheckCircle,
   AlertCircle,
-  Trash2,
+  Users,
+  KeyRound,
+  Eye,
+  EyeOff,
   Mail,
-  AlertTriangle,
+  ShieldCheck,
 } from "lucide-react";
+import Header from "@/components/layout/Header";
 import { supabase } from "@/lib/supabase";
-import type { EventoLista, ParticipanteInscricao } from "@/types/database";
-
-// ─── Tipos ────────────────────────────────────────────────────────────────────
-
-interface MeuDependente {
-  id: string;
-  nome: string;
-  nr_sequencia: number;
-  data_nascimento: string | null;
-}
-
-interface Convidado {
-  nome: string;
-  cpf: string;
-}
-
-interface Props {
-  evento: EventoLista;
-  onFechar: () => void;
-  onSucesso: () => void;
-}
+import { useAuth } from "@/hooks/useAuth";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 // ─── Funções utilitárias ──────────────────────────────────────────────────────
 
-function formatarMoeda(valor: number): string {
-  return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+function formatarCpf(cpf: string): string {
+  return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
 }
 
-function formatarCpf(valor: string): string {
+function formatarData(data: string): string {
+  return format(new Date(data), "dd/MM/yyyy", { locale: ptBR });
+}
+
+function formatarCelular(valor: string): string {
   const digits = valor.replace(/\D/g, "").slice(0, 11);
-  return digits
-    .replace(/(\d{3})(\d)/, "$1.$2")
-    .replace(/(\d{3})(\d)/, "$1.$2")
-    .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 7)
+    return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
 }
 
-// ─── ModalInscricao ───────────────────────────────────────────────────────────
+function validarSenha(senha: string): string[] {
+  const erros: string[] = [];
+  if (senha.length < 8) erros.push("Mínimo de 8 caracteres");
+  if (!/[A-Z]/.test(senha)) erros.push("Uma letra maiúscula");
+  if (!/[a-z]/.test(senha)) erros.push("Uma letra minúscula");
+  if (!/[0-9]/.test(senha)) erros.push("Um número");
+  if (!/[^A-Za-z0-9]/.test(senha)) erros.push("Um caractere especial");
+  return erros;
+}
 
-export default function ModalInscricao({ evento, onFechar, onSucesso }: Props) {
-  const [dependentes, setDependentes] = useState<MeuDependente[]>([]);
-  const [carregandoDeps, setCarregandoDeps] = useState(false);
-  const [titularSelecionado, setTitularSelecionado] = useState(true);
-  const [depsSelecionados, setDepsSelecionados] = useState<Set<string>>(
-    new Set()
+// ─── MeuPerfil ────────────────────────────────────────────────────────────────
+
+export default function MeuPerfil() {
+  const navigate = useNavigate();
+  const { associado } = useAuth();
+
+  // ─── Celular ──────────────────────────────────────────────────────────────
+  const [celularExibido, setCelularExibido] = useState(
+    associado?.celular ?? ""
   );
-  const [convidados, setConvidados] = useState<Convidado[]>([]);
-  const [salvando, setSalvando] = useState(false);
+  const [celularInput, setCelularInput] = useState(associado?.celular ?? "");
+  const [editandoCelular, setEditandoCelular] = useState(false);
+  const [salvandoCelular, setSalvandoCelular] = useState(false);
+
+  // ─── E-mail ───────────────────────────────────────────────────────────────
+  const [emailExibido, setEmailExibido] = useState(associado?.email ?? "");
+  const [emailVerificado, setEmailVerificado] = useState(
+    associado?.email_verificado ?? false
+  );
+  const [emailInput, setEmailInput] = useState("");
+  const [editandoEmail, setEditandoEmail] = useState(false);
+  const [enviandoCodigo, setEnviandoCodigo] = useState(false);
+  const [aguardandoCodigo, setAguardandoCodigo] = useState(false);
+  const [codigoInput, setCodigoInput] = useState("");
+  const [verificandoCodigo, setVerificandoCodigo] = useState(false);
+
+  // ─── Senha ────────────────────────────────────────────────────────────────
+  const [senhaAtual, setSenhaAtual] = useState("");
+  const [novaSenha, setNovaSenha] = useState("");
+  const [confirmarSenha, setConfirmarSenha] = useState("");
+  const [mostrarSenhaAtual, setMostrarSenhaAtual] = useState(false);
+  const [mostrarNovaSenha, setMostrarNovaSenha] = useState(false);
+  const [salvandoSenha, setSalvandoSenha] = useState(false);
+  const [editandoSenha, setEditandoSenha] = useState(false);
+
+  // ─── Feedback ─────────────────────────────────────────────────────────────
+  const [feedback, setFeedback] = useState("");
   const [erro, setErro] = useState("");
-  const [sucesso, setSucesso] = useState(false);
-  const [avisoEmail, setAvisoEmail] = useState("");
 
-  // ─── Reset ao trocar de evento ────────────────────────────────────────────
-  const [prevEventoId, setPrevEventoId] = useState<string | null>(null);
+  if (!associado) return null;
 
-  if (evento.id !== prevEventoId) {
-    setPrevEventoId(evento.id);
-    setTitularSelecionado(true);
-    setDepsSelecionados(new Set());
-    setConvidados([]);
+  // A partir daqui, associado é garantidamente não-null.
+  // Porém TS perde o narrowing em closures async, então extraímos
+  // os valores necessários para constantes locais.
+  const associadoId = associado.id;
+  const associadoCpf = associado.cpf;
+
+  function mostrarFeedback(msg: string) {
+    setFeedback(msg);
+    setTimeout(() => setFeedback(""), 3000);
+  }
+
+  // ─── Ações: Celular ───────────────────────────────────────────────────────
+
+  async function handleSalvarCelular() {
+    const celularLimpo = celularInput.replace(/\D/g, "");
+    if (celularLimpo.length > 0 && celularLimpo.length < 10) {
+      setErro("Celular deve ter 10 ou 11 dígitos.");
+      return;
+    }
+    setSalvandoCelular(true);
     setErro("");
-    setSucesso(false);
-    setAvisoEmail("");
-    setDependentes([]);
-    setCarregandoDeps(evento.aceita_dependente);
+    const { error } = await supabase
+      .from("associados")
+      .update({ celular: celularLimpo || null })
+      .eq("id", associadoId);
+    if (error) {
+      setErro("Não foi possível atualizar.");
+    } else {
+      setCelularExibido(celularLimpo);
+      setEditandoCelular(false);
+      mostrarFeedback("Celular atualizado.");
+    }
+    setSalvandoCelular(false);
   }
 
-  // ─── Busca dependentes ────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!evento.aceita_dependente) return;
+  // ─── Ações: E-mail ────────────────────────────────────────────────────────
 
-    let mounted = true;
-
-    const buscar = async () => {
-      const { data } = await supabase
-        .from("vw_meus_dependentes")
-        .select("id, nome, nr_sequencia, data_nascimento")
-        .order("nr_sequencia");
-
-      if (mounted) {
-        setDependentes((data as MeuDependente[]) ?? []);
-        setCarregandoDeps(false);
-      }
-    };
-
-    buscar();
-    return () => {
-      mounted = false;
-    };
-  }, [evento.id, evento.aceita_dependente]);
-
-  // ─── Handlers ─────────────────────────────────────────────────────────────
-
-  function toggleDependente(id: string) {
-    setDepsSelecionados((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }
-
-  function adicionarConvidado() {
-    if (convidados.length >= evento.limite_convidado) return;
-    setConvidados((prev) => [...prev, { nome: "", cpf: "" }]);
-  }
-
-  function atualizarConvidado(
-    index: number,
-    campo: keyof Convidado,
-    valor: string
-  ) {
-    setConvidados((prev) =>
-      prev.map((c, i) =>
-        i === index
-          ? { ...c, [campo]: campo === "cpf" ? formatarCpf(valor) : valor }
-          : c
-      )
-    );
-  }
-
-  function removerConvidado(index: number) {
-    setConvidados((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  // ─── Cálculo de valor total ───────────────────────────────────────────────
-
-  const valorTitular = titularSelecionado ? evento.valor_titular : 0;
-  const valorDeps = depsSelecionados.size * (evento.valor_dependente ?? 0);
-  const valorConvidados = convidados.length * (evento.valor_convidado ?? 0);
-  const valorTotal = valorTitular + valorDeps + valorConvidados;
-  const totalParticipantes =
-    (titularSelecionado ? 1 : 0) + depsSelecionados.size + convidados.length;
-
-  // ─── Submit ───────────────────────────────────────────────────────────────
-
-  async function handleSubmit() {
+  async function handleEnviarCodigo() {
     setErro("");
-
-    if (totalParticipantes === 0) {
-      setErro("Selecione ao menos um participante.");
+    const email = emailInput.trim().toLowerCase();
+    if (!email.match(/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/)) {
+      setErro("Informe um e-mail válido.");
       return;
     }
 
-    if (
-      !titularSelecionado &&
-      (depsSelecionados.size > 0 || convidados.length > 0)
-    ) {
-      setErro(
-        "O titular deve estar inscrito para incluir dependentes ou convidados."
-      );
-      return;
-    }
-
-    for (const conv of convidados) {
-      if (!conv.nome.trim()) {
-        setErro("Informe o nome de todos os convidados.");
-        return;
-      }
-    }
-
-    if (totalParticipantes > evento.vagas_disponiveis) {
-      setErro(
-        `Vagas insuficientes. Disponíveis: ${evento.vagas_disponiveis}, solicitadas: ${totalParticipantes}.`
-      );
-      return;
-    }
-
-    const participantes: ParticipanteInscricao[] = [];
-
-    if (titularSelecionado) {
-      participantes.push({ tipo: "titular" });
-    }
-
-    for (const depId of depsSelecionados) {
-      participantes.push({ tipo: "dependente", dependente_id: depId });
-    }
-
-    for (const conv of convidados) {
-      participantes.push({
-        tipo: "convidado",
-        nome: conv.nome.trim(),
-        cpf: conv.cpf.replace(/\D/g, "") || undefined,
-      });
-    }
-
-    setSalvando(true);
+    setEnviandoCodigo(true);
 
     try {
-      const { data, error } = await supabase.rpc("reservar_evento", {
-        p_evento_id: evento.id,
-        p_participantes: participantes,
-      });
+      const { data, error } = await supabase.functions.invoke(
+        "enviar-codigo",
+        { body: { email } }
+      );
 
       if (error) {
-        setErro("Erro ao processar a inscrição. Tente novamente.");
-        setSalvando(false);
-        return;
-      }
-
-      const resultado = data as Record<string, unknown> | null;
-
-      if (resultado?.erro) {
-        setErro(resultado.erro as string);
-        setSalvando(false);
-        return;
-      }
-
-      // Inscrição realizada — tenta enviar notificação por e-mail
-      setSalvando(false);
-      setSucesso(true);
-
-      try {
-        const { data: emailData } = await supabase.functions.invoke(
-          "notificar-inscricao",
-          { body: { evento_id: evento.id } }
-        );
-
-        const emailResult = emailData as Record<string, unknown> | null;
-
-        if (emailResult?.sem_email) {
-          setAvisoEmail(emailResult.mensagem as string);
+        setErro("Erro ao enviar código. Tente novamente.");
+      } else {
+        const resultado = data as Record<string, unknown> | null;
+        if (resultado?.erro) {
+          setErro(resultado.erro as string);
+        } else {
+          setAguardandoCodigo(true);
+          setEmailExibido(email);
+          mostrarFeedback(`Código enviado para ${email}`);
         }
-      } catch {
-        // Falha no envio de e-mail não impede o sucesso da inscrição
       }
-
-      setTimeout(onSucesso, 3000);
     } catch {
-      setErro("Erro inesperado. Tente novamente.");
-      setSalvando(false);
+      setErro("Erro ao enviar código.");
+    } finally {
+      setEnviandoCodigo(false);
     }
   }
 
-  // ─── Tela de sucesso ──────────────────────────────────────────────────────
+  async function handleVerificarCodigo() {
+    setErro("");
+    if (codigoInput.length !== 6) {
+      setErro("O código deve ter 6 dígitos.");
+      return;
+    }
 
-  if (sucesso) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-fade-in">
-        <div className="bg-white rounded-2xl shadow-modal p-8 max-w-md w-full mx-4 text-center animate-slide-up">
-          <div
-            className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
-            style={{ backgroundColor: "#DCFCE7" }}
-          >
-            <CheckCircle size={32} style={{ color: "#16a34a" }} />
-          </div>
-          <h2 className="font-display text-xl font-bold text-gray-800 mb-2">
-            Inscrição realizada!
-          </h2>
-          <p className="text-gray-500 text-sm mb-4">
-            {totalParticipantes} participante(s) inscrito(s) com sucesso.
-          </p>
+    setVerificandoCodigo(true);
 
-          {avisoEmail ? (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-2 text-left">
-              <AlertTriangle
-                size={16}
-                className="text-amber-500 flex-shrink-0 mt-0.5"
-              />
-              <p className="text-amber-700 text-sm">{avisoEmail}</p>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center gap-2 text-sm text-green-600">
-              <Mail size={16} />
-              E-mail de confirmação enviado
-            </div>
-          )}
-        </div>
-      </div>
-    );
+    try {
+      const { data, error } = await supabase.rpc(
+        "confirmar_codigo_verificacao",
+        { p_codigo: codigoInput }
+      );
+
+      if (error) {
+        setErro("Erro ao verificar código.");
+      } else {
+        const resultado = data as Record<string, unknown> | null;
+        if (resultado?.erro) {
+          setErro(resultado.erro as string);
+        } else {
+          setEmailVerificado(true);
+          setAguardandoCodigo(false);
+          setEditandoEmail(false);
+          setCodigoInput("");
+          mostrarFeedback("E-mail verificado com sucesso!");
+        }
+      }
+    } catch {
+      setErro("Erro ao verificar código.");
+    } finally {
+      setVerificandoCodigo(false);
+    }
   }
 
-  // ─── Modal principal ──────────────────────────────────────────────────────
+  function handleCancelarEmail() {
+    setEditandoEmail(false);
+    setAguardandoCodigo(false);
+    setEmailInput("");
+    setCodigoInput("");
+    setErro("");
+  }
+
+  // ─── Ações: Senha ─────────────────────────────────────────────────────────
+
+  async function handleAlterarSenha() {
+    setErro("");
+    if (!senhaAtual.trim()) {
+      setErro("Informe a senha atual.");
+      return;
+    }
+    const errosSenhaValidacao = validarSenha(novaSenha);
+    if (errosSenhaValidacao.length > 0) {
+      setErro(
+        "A nova senha precisa ter: " + errosSenhaValidacao.join(", ") + "."
+      );
+      return;
+    }
+    if (novaSenha !== confirmarSenha) {
+      setErro("A confirmação não confere.");
+      return;
+    }
+
+    setSalvandoSenha(true);
+    const email = `${associadoCpf}@secoomed.local`;
+    const { error: loginError } = await supabase.auth.signInWithPassword({
+      email,
+      password: senhaAtual,
+    });
+    if (loginError) {
+      setErro("Senha atual incorreta.");
+      setSalvandoSenha(false);
+      return;
+    }
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: novaSenha,
+    });
+    if (updateError) {
+      setErro("Não foi possível alterar a senha.");
+    } else {
+      setSenhaAtual("");
+      setNovaSenha("");
+      setConfirmarSenha("");
+      setEditandoSenha(false);
+      mostrarFeedback("Senha alterada com sucesso.");
+    }
+    setSalvandoSenha(false);
+  }
+
+  // ─── Indicador de força ───────────────────────────────────────────────────
+
+  const errosSenha = novaSenha.length > 0 ? validarSenha(novaSenha) : [];
+  const forcaSenha = novaSenha.length === 0 ? 0 : 5 - errosSenha.length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-modal max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto animate-slide-up">
-        {/* Header */}
-        <div className="sticky top-0 bg-white rounded-t-2xl px-6 py-4 border-b border-surface-100 flex items-center justify-between z-10">
-          <h2 className="font-display text-lg font-bold text-gray-800">
-            Inscrição — {evento.destino}
-          </h2>
-          <button
-            onClick={onFechar}
-            className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
+    <div className="min-h-screen flex flex-col bg-gray-100">
+      <Header />
 
-        <div className="px-6 py-5 flex flex-col gap-5">
-          {/* Titular */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-3">
-              <UserCheck size={16} className="text-green-600" /> Titular
-            </h3>
-            <label className="flex items-center gap-3 p-3 rounded-xl border border-surface-200 hover:bg-gray-50 cursor-pointer transition-colors">
-              <input
-                type="checkbox"
-                checked={titularSelecionado}
-                onChange={(e) => setTitularSelecionado(e.target.checked)}
-                className="w-4 h-4 accent-green-600"
-              />
-              <span className="flex-1 text-sm text-gray-700">
-                Eu (titular)
-              </span>
-              <span className="text-sm font-medium text-gray-800">
-                {formatarMoeda(evento.valor_titular)}
-              </span>
-            </label>
+      {feedback && (
+        <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-gray-800 text-white text-sm font-medium px-5 py-3 rounded-xl shadow-lg animate-fade-in">
+          <CheckCircle size={16} className="text-green-400" />
+          {feedback}
+        </div>
+      )}
+
+      <main className="flex-1 max-w-2xl w-full mx-auto px-4 sm:px-6 pt-28 pb-12">
+        <button
+          onClick={() => navigate("/area")}
+          className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition-colors mb-6"
+        >
+          <ArrowLeft size={16} />
+          Voltar para eventos
+        </button>
+
+        <h1 className="font-display text-2xl font-bold text-gray-800 mb-8">
+          Meus dados
+        </h1>
+
+        {/* ─── Card dados pessoais ─────────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl shadow-card border border-surface-200 overflow-hidden">
+          <div className="px-6 pt-6 pb-4 flex items-center gap-4 border-b border-surface-100">
+            <div
+              className="w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: "#16a34a" }}
+            >
+              <User size={24} className="text-white" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-lg text-gray-800">
+                {associado.nome}
+              </h2>
+              <p className="text-sm text-gray-500">
+                Matrícula #{associado.nr_inscricao}
+                {!associado.ativo && (
+                  <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-600">
+                    Inativo
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
 
-          {/* Dependentes */}
-          {evento.aceita_dependente && (
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-3">
-                <Users size={16} className="text-green-600" /> Dependentes
-              </h3>
-              {carregandoDeps ? (
-                <p className="text-sm text-gray-400 py-2">
-                  Carregando dependentes...
+          <div className="px-6 py-5 flex flex-col gap-4">
+            <div className="flex items-center gap-3">
+              <CreditCard size={18} className="text-gray-400 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-400">CPF</p>
+                <p className="text-sm text-gray-800 font-medium">
+                  {formatarCpf(associado.cpf)}
                 </p>
-              ) : dependentes.length === 0 ? (
-                <p className="text-sm text-gray-400 py-2">
-                  Nenhum dependente cadastrado.
-                </p>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {dependentes.map((dep) => (
-                    <label
-                      key={dep.id}
-                      className="flex items-center gap-3 p-3 rounded-xl border border-surface-200 hover:bg-gray-50 cursor-pointer transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={depsSelecionados.has(dep.id)}
-                        onChange={() => toggleDependente(dep.id)}
-                        className="w-4 h-4 accent-green-600"
-                      />
-                      <span className="flex-1 text-sm text-gray-700">
-                        {dep.nome}
-                      </span>
-                      <span className="text-sm font-medium text-gray-800">
-                        {formatarMoeda(evento.valor_dependente ?? 0)}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
+              </div>
             </div>
-          )}
 
-          {/* Convidados */}
-          {evento.limite_convidado > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-3">
-                <UserPlus size={16} className="text-green-600" /> Convidados
-                <span className="text-xs text-gray-400 font-normal">
-                  (máx. {evento.limite_convidado})
-                </span>
-              </h3>
+            {associado.empresa && (
+              <div className="flex items-center gap-3">
+                <Building2
+                  size={18}
+                  className="text-gray-400 flex-shrink-0"
+                />
+                <div>
+                  <p className="text-xs text-gray-400">Empresa</p>
+                  <p className="text-sm text-gray-800 font-medium">
+                    {associado.empresa}
+                  </p>
+                </div>
+              </div>
+            )}
 
-              {convidados.map((conv, index) => (
-                <div
-                  key={index}
-                  className="flex items-start gap-2 mb-2 p-3 rounded-xl border border-surface-200"
+            {associado.data_nascimento && (
+              <div className="flex items-center gap-3">
+                <CalendarDays
+                  size={18}
+                  className="text-gray-400 flex-shrink-0"
+                />
+                <div>
+                  <p className="text-xs text-gray-400">Data de nascimento</p>
+                  <p className="text-sm text-gray-800 font-medium">
+                    {formatarData(associado.data_nascimento)}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Celular */}
+            <div className="flex items-start gap-3">
+              <Phone size={18} className="text-gray-400 flex-shrink-0 mt-1" />
+              <div className="flex-1">
+                <p className="text-xs text-gray-400">Celular</p>
+                {editandoCelular ? (
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={formatarCelular(celularInput)}
+                    onChange={(e) => setCelularInput(e.target.value)}
+                    className="field text-sm mt-1 w-full"
+                    placeholder="(41) 99999-9999"
+                    autoFocus
+                  />
+                ) : (
+                  <p className="text-sm text-gray-800 font-medium">
+                    {celularExibido
+                      ? formatarCelular(celularExibido)
+                      : "Não informado"}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="px-6 py-4 bg-gray-50 border-t border-surface-100 flex justify-end gap-3">
+            {editandoCelular ? (
+              <>
+                <button
+                  onClick={() => {
+                    setCelularInput(celularExibido);
+                    setEditandoCelular(false);
+                    setErro("");
+                  }}
+                  disabled={salvandoCelular}
+                  className="btn-secondary"
                 >
-                  <div className="flex-1 flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="text"
-                      placeholder="Nome do convidado"
-                      value={conv.nome}
-                      onChange={(e) =>
-                        atualizarConvidado(index, "nome", e.target.value)
-                      }
-                      className="field flex-1 text-sm"
-                    />
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="CPF (opcional)"
-                      value={conv.cpf}
-                      onChange={(e) =>
-                        atualizarConvidado(index, "cpf", e.target.value)
-                      }
-                      className="field w-full sm:w-40 text-sm"
-                    />
-                  </div>
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSalvarCelular}
+                  disabled={salvandoCelular}
+                  className="btn-primary"
+                  style={{
+                    backgroundColor: salvandoCelular ? "#86efac" : "#16a34a",
+                  }}
+                >
+                  {salvandoCelular ? "Salvando..." : "Salvar"}
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setEditandoCelular(true)}
+                className="text-sm font-semibold text-white px-5 py-2 rounded-xl transition-colors hover:opacity-90"
+                style={{ backgroundColor: "#16a34a" }}
+              >
+                Editar celular
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ─── Card e-mail com verificação ─────────────────────────────────── */}
+        <div className="bg-white rounded-2xl shadow-card border border-surface-200 overflow-hidden mt-6">
+          <div className="px-6 py-4 flex items-center gap-3 border-b border-surface-100">
+            <Mail size={18} className="text-gray-400" />
+            <h2 className="font-semibold text-gray-800">E-mail</h2>
+            {emailVerificado && emailExibido && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                <ShieldCheck size={12} /> Verificado
+              </span>
+            )}
+          </div>
+
+          <div className="px-6 py-5">
+            {editandoEmail ? (
+              aguardandoCodigo ? (
+                <div className="flex flex-col gap-3">
+                  <p className="text-sm text-gray-600">
+                    Digite o código de 6 dígitos enviado para{" "}
+                    <strong>{emailExibido}</strong>
+                  </p>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={codigoInput}
+                    onChange={(e) =>
+                      setCodigoInput(e.target.value.replace(/\D/g, ""))
+                    }
+                    placeholder="000000"
+                    className="field text-center text-2xl tracking-[0.5em] font-mono w-48"
+                    autoFocus
+                  />
                   <button
-                    type="button"
-                    onClick={() => removerConvidado(index)}
-                    className="p-2 text-red-400 hover:text-red-600 transition-colors flex-shrink-0"
+                    onClick={handleEnviarCodigo}
+                    disabled={enviandoCodigo}
+                    className="text-xs text-green-700 hover:text-green-800 font-medium self-start"
                   >
-                    <Trash2 size={16} />
+                    {enviandoCodigo ? "Reenviando..." : "Reenviar código"}
                   </button>
                 </div>
-              ))}
-
-              {convidados.length < evento.limite_convidado && (
-                <button
-                  type="button"
-                  onClick={adicionarConvidado}
-                  className="text-sm text-green-700 font-medium hover:text-green-800 transition-colors"
-                >
-                  + Adicionar convidado
-                </button>
-              )}
-
-              {convidados.length > 0 && (
-                <div className="text-sm text-gray-500 mt-1">
-                  {convidados.length} convidado(s) ×{" "}
-                  {formatarMoeda(evento.valor_convidado ?? 0)}
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <p className="text-sm text-gray-600">
+                    Informe seu e-mail pessoal. Enviaremos um código de
+                    verificação.
+                  </p>
+                  <input
+                    type="email"
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    placeholder="seu@email.com"
+                    className="field text-sm w-full"
+                    autoFocus
+                  />
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* Resumo */}
-          <div className="bg-gray-50 rounded-xl p-4 border border-surface-100">
-            <div className="flex justify-between text-sm text-gray-600 mb-1">
-              <span>Participantes</span>
-              <span>{totalParticipantes}</span>
-            </div>
-            <div className="flex justify-between text-base font-bold text-gray-800">
-              <span>Valor total</span>
-              <span style={{ color: "#16a34a" }}>
-                {formatarMoeda(valorTotal)}
-              </span>
-            </div>
+              )
+            ) : (
+              <div>
+                <p className="text-sm text-gray-800 font-medium">
+                  {emailExibido || "Nenhum e-mail cadastrado"}
+                </p>
+                {!emailExibido && (
+                  <p className="text-xs text-amber-600 mt-2">
+                    Cadastre seu e-mail para receber notificações de inscrição.
+                  </p>
+                )}
+                {emailExibido && !emailVerificado && (
+                  <p className="text-xs text-amber-600 mt-2">
+                    E-mail não verificado. Clique em &quot;Alterar e-mail&quot;
+                    para verificar.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Erro */}
+          {/* Erro — compartilhado entre os cards */}
           {erro && (
-            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-start gap-2">
-              <AlertCircle
-                size={16}
-                className="text-red-500 flex-shrink-0 mt-0.5"
-              />
-              <p className="text-red-600 text-sm">{erro}</p>
+            <div className="px-6 pb-4">
+              <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-start gap-2">
+                <AlertCircle
+                  size={16}
+                  className="text-red-500 flex-shrink-0 mt-0.5"
+                />
+                <p className="text-red-600 text-sm">{erro}</p>
+              </div>
             </div>
           )}
+
+          <div className="px-6 py-4 bg-gray-50 border-t border-surface-100 flex justify-end gap-3">
+            {editandoEmail ? (
+              <>
+                <button
+                  onClick={handleCancelarEmail}
+                  className="btn-secondary"
+                >
+                  Cancelar
+                </button>
+                {aguardandoCodigo ? (
+                  <button
+                    onClick={handleVerificarCodigo}
+                    disabled={
+                      verificandoCodigo || codigoInput.length !== 6
+                    }
+                    className="btn-primary"
+                    style={{
+                      backgroundColor:
+                        verificandoCodigo || codigoInput.length !== 6
+                          ? "#86efac"
+                          : "#16a34a",
+                    }}
+                  >
+                    {verificandoCodigo
+                      ? "Verificando..."
+                      : "Verificar código"}
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleEnviarCodigo}
+                    disabled={enviandoCodigo}
+                    className="btn-primary"
+                    style={{
+                      backgroundColor: enviandoCodigo
+                        ? "#86efac"
+                        : "#16a34a",
+                    }}
+                  >
+                    {enviandoCodigo ? "Enviando..." : "Enviar código"}
+                  </button>
+                )}
+              </>
+            ) : (
+              <button
+                onClick={() => {
+                  setEditandoEmail(true);
+                  setEmailInput(emailExibido);
+                  setErro("");
+                }}
+                className="text-sm font-semibold text-white px-5 py-2 rounded-xl transition-colors hover:opacity-90"
+                style={{ backgroundColor: "#16a34a" }}
+              >
+                {emailExibido ? "Alterar e-mail" : "Cadastrar e-mail"}
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Footer */}
-        <div className="sticky bottom-0 bg-white rounded-b-2xl px-6 py-4 border-t border-surface-100 flex justify-end gap-3">
-          <button onClick={onFechar} className="btn-secondary">
-            Cancelar
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={salvando || totalParticipantes === 0}
-            className="btn-primary"
-            style={{
-              backgroundColor:
-                salvando || totalParticipantes === 0 ? "#86efac" : "#16a34a",
-            }}
-          >
-            {salvando ? "Inscrevendo..." : "Confirmar inscrição"}
-          </button>
+        {/* ─── Card senha ──────────────────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl shadow-card border border-surface-200 overflow-hidden mt-6">
+          <div className="px-6 py-4 flex items-center gap-3 border-b border-surface-100">
+            <KeyRound size={18} className="text-gray-400" />
+            <h2 className="font-semibold text-gray-800">Alterar senha</h2>
+          </div>
+
+          {editandoSenha ? (
+            <div className="px-6 py-5 flex flex-col gap-4">
+              {/* Senha atual */}
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">
+                  Senha atual
+                </label>
+                <div className="relative">
+                  <input
+                    type={mostrarSenhaAtual ? "text" : "password"}
+                    value={senhaAtual}
+                    onChange={(e) => setSenhaAtual(e.target.value)}
+                    className="field text-sm w-full pr-10"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setMostrarSenhaAtual(!mostrarSenhaAtual)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {mostrarSenhaAtual ? (
+                      <EyeOff size={16} />
+                    ) : (
+                      <Eye size={16} />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Nova senha */}
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">
+                  Nova senha
+                </label>
+                <div className="relative">
+                  <input
+                    type={mostrarNovaSenha ? "text" : "password"}
+                    value={novaSenha}
+                    onChange={(e) => setNovaSenha(e.target.value)}
+                    className="field text-sm w-full pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setMostrarNovaSenha(!mostrarNovaSenha)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {mostrarNovaSenha ? (
+                      <EyeOff size={16} />
+                    ) : (
+                      <Eye size={16} />
+                    )}
+                  </button>
+                </div>
+                {novaSenha.length > 0 && (
+                  <div className="mt-2">
+                    <div className="flex gap-1 mb-1">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <div
+                          key={n}
+                          className="h-1.5 flex-1 rounded-full transition-colors"
+                          style={{
+                            backgroundColor:
+                              n <= forcaSenha
+                                ? forcaSenha <= 2
+                                  ? "#ef4444"
+                                  : forcaSenha <= 4
+                                  ? "#f59e0b"
+                                  : "#16a34a"
+                                : "#e5e7eb",
+                          }}
+                        />
+                      ))}
+                    </div>
+                    {errosSenha.length > 0 && (
+                      <p className="text-xs text-gray-400">
+                        Falta: {errosSenha.join(", ")}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Confirmar */}
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">
+                  Confirmar nova senha
+                </label>
+                <input
+                  type="password"
+                  value={confirmarSenha}
+                  onChange={(e) => setConfirmarSenha(e.target.value)}
+                  className="field text-sm w-full"
+                />
+                {confirmarSenha.length > 0 &&
+                  confirmarSenha !== novaSenha && (
+                    <p className="text-xs text-red-500 mt-1">
+                      As senhas não conferem
+                    </p>
+                  )}
+              </div>
+            </div>
+          ) : (
+            <div className="px-6 py-5">
+              <p className="text-sm text-gray-500">
+                Altere sua senha periodicamente para manter sua conta segura.
+              </p>
+            </div>
+          )}
+
+          <div className="px-6 py-4 bg-gray-50 border-t border-surface-100 flex justify-end gap-3">
+            {editandoSenha ? (
+              <>
+                <button
+                  onClick={() => {
+                    setSenhaAtual("");
+                    setNovaSenha("");
+                    setConfirmarSenha("");
+                    setEditandoSenha(false);
+                    setErro("");
+                  }}
+                  disabled={salvandoSenha}
+                  className="btn-secondary"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleAlterarSenha}
+                  disabled={salvandoSenha}
+                  className="btn-primary"
+                  style={{
+                    backgroundColor: salvandoSenha ? "#86efac" : "#16a34a",
+                  }}
+                >
+                  {salvandoSenha ? "Alterando..." : "Alterar senha"}
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setEditandoSenha(true)}
+                className="text-sm font-semibold text-white px-5 py-2 rounded-xl transition-colors hover:opacity-90"
+                style={{ backgroundColor: "#16a34a" }}
+              >
+                Alterar senha
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+
+        {/* Aviso */}
+        <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl px-5 py-3 text-sm text-blue-700 flex items-start gap-2">
+          <Users size={16} className="flex-shrink-0 mt-0.5" />
+          <p>
+            Os dados de nome, CPF, empresa e dependentes são gerenciados pelo
+            SECOOMED. Caso precise atualizar alguma informação, entre em contato
+            com a administração.
+          </p>
+        </div>
+      </main>
     </div>
   );
 }
