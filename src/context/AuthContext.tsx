@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Session, User } from "@supabase/supabase-js";
 import type { Associado } from "@/types/database";
@@ -9,7 +9,6 @@ import ModalPrimeiroAcesso from "@/components/ui/ModalPrimeiroAcesso";
 
 export { AuthContext };
 
-// ─── Limpa tokens do localStorage — garante logout mesmo sem resposta do server
 function limparTokensLocais() {
   const keys = Object.keys(localStorage).filter(
     (k) => k.startsWith("sb-") && k.includes("-auth-token")
@@ -18,27 +17,17 @@ function limparTokensLocais() {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession]     = useState<Session | null>(null);
-  const [user, setUser]           = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [associado, setAssociado] = useState<Associado | null>(null);
-  const [isAdmin, setIsAdmin]     = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [primeiroAcesso, setPrimeiroAcesso] = useState(false);
-  const [mostrarAviso, setMostrarAviso]     = useState(false);
-  const [contador, setContador]             = useState(300);
+  const [mostrarAviso, setMostrarAviso] = useState(false);
+  const [contador, setContador] = useState(300);
   const contadorRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ─── Limpeza centralizada de estado ──────────────────────────────────────────
-  function limparEstadoAuth() {
-    limparTokensLocais();
-    setSession(null);
-    setUser(null);
-    setAssociado(null);
-    setIsAdmin(false);
-    setPrimeiroAcesso(false);
-  }
-
-  // ─── Idle timer ───────────────────────────────────────────────────────────────
+  // ─── Idle timer ───────────────────────────────────────────────────────────
   const handleAviso = useCallback(() => {
     setContador(300);
     setMostrarAviso(true);
@@ -50,8 +39,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const handleExpirar = useCallback(async () => {
     if (contadorRef.current) clearInterval(contadorRef.current);
     setMostrarAviso(false);
-    try { await supabase.auth.signOut(); } catch { /* ignora */ }
-    limparEstadoAuth();
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      /* ignora */
+    }
+    limparTokensLocais();
+    setSession(null);
+    setUser(null);
+    setAssociado(null);
+    setIsAdmin(false);
     window.location.href = "/entrar";
   }, []);
 
@@ -59,10 +56,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const { resetar, resetTimestampRef } = useIdleTimer({
     tempoLimite: 30 * 60 * 1000,
-    tempoAviso:   5 * 60 * 1000,
-    onAviso:   handleAviso,
+    tempoAviso: 5 * 60 * 1000,
+    onAviso: handleAviso,
     onExpirar: handleExpirar,
-    ativo:     sessionAtiva,
+    ativo: sessionAtiva,
   });
 
   function handleContinuar() {
@@ -71,7 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     resetar();
   }
 
-  // ─── Helpers ─────────────────────────────────────────────────────────────────
+  // ─── Helpers ──────────────────────────────────────────────────────────────
   async function carregarAssociado(userId: string) {
     try {
       const { data } = await supabase
@@ -90,19 +87,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsAdmin(u.app_metadata?.role === "admin");
   }
 
-  // ─── Auth listener ────────────────────────────────────────────────────────────
+  // ─── Auth listener (ÚNICO ponto de gestão de sessão) ──────────────────────
   useEffect(() => {
     let mounted = true;
 
     supabase.auth
       .getSession()
-      .then(({ data: { session } }) => {
+      .then(({ data: { session: s } }) => {
         if (!mounted) return;
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          verificarAdmin(session.user);
-          carregarAssociado(session.user.id).finally(() => {
+        setSession(s);
+        setUser(s?.user ?? null);
+        if (s?.user) {
+          verificarAdmin(s.user);
+          carregarAssociado(s.user.id).finally(() => {
             if (mounted) setIsLoading(false);
           });
         } else {
@@ -113,45 +110,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (mounted) setIsLoading(false);
       });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (!mounted) return;
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, s) => {
+      if (!mounted) return;
 
-        if (event === "TOKEN_REFRESHED") {
-          setSession(session);
-          setUser(session?.user ?? null);
-          if (session?.user) verificarAdmin(session.user);
-          if (mounted) setIsLoading(false);
-          return;
-        }
-
-        if (event === "USER_UPDATED") {
-          setSession(session);
-          setUser(session?.user ?? null);
-          if (session?.user) verificarAdmin(session.user);
-          if (mounted) setIsLoading(false);
-          return;
-        }
-
-        if (event === "SIGNED_OUT") {
-          limparEstadoAuth();
-          if (mounted) setIsLoading(false);
-          window.location.href = "/entrar";
-          return;
-        }
-
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          verificarAdmin(session.user);
-          await carregarAssociado(session.user.id);
-        } else {
-          setAssociado(null);
-          setIsAdmin(false);
-        }
-        if (mounted) setIsLoading(false);
+      // TOKEN_REFRESHED: atualiza referência sem efeitos colaterais
+      if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+        setSession(s);
+        setUser(s?.user ?? null);
+        if (s?.user) verificarAdmin(s.user);
+        return;
       }
-    );
+
+      // SIGNED_OUT: limpa tudo e redireciona
+      if (event === "SIGNED_OUT") {
+        limparTokensLocais();
+        setSession(null);
+        setUser(null);
+        setAssociado(null);
+        setIsAdmin(false);
+        setIsLoading(false);
+        window.location.href = "/entrar";
+        return;
+      }
+
+      // SIGNED_IN e outros: carrega dados do associado
+      setSession(s);
+      setUser(s?.user ?? null);
+      if (s?.user) {
+        verificarAdmin(s.user);
+        await carregarAssociado(s.user.id);
+      } else {
+        setAssociado(null);
+        setIsAdmin(false);
+      }
+      if (mounted) setIsLoading(false);
+    });
 
     return () => {
       mounted = false;
@@ -159,27 +154,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // ─── Verificação periódica de sessão (60s) ────────────────────────────────────
-  // Detecta tokens expirados silenciosamente quando SIGNED_OUT não dispara
-  useEffect(() => {
-    if (!session) return;
+  // NÃO TEM verificação periódica com getUser() — era a causa de desconexões.
+  // O autoRefreshToken: true do Supabase client cuida da renovação do token.
+  // O onAuthStateChange cuida dos eventos de sessão.
+  // O idle timer cuida do timeout por inatividade.
 
-    const verificar = async () => {
-      const { error } = await supabase.auth.getUser();
-      if (error) {
-        limparEstadoAuth();
-        window.location.href = "/entrar";
-      }
-    };
-
-    const interval = setInterval(verificar, 60_000);
-    return () => clearInterval(interval);
-  }, [session]);
-
-  // ─── Auth actions ─────────────────────────────────────────────────────────────
+  // ─── Auth actions ─────────────────────────────────────────────────────────
   async function signIn(cpf: string, senha: string) {
     const cpfLimpo = cpf.replace(/[^0-9]/g, "");
-    const email    = `${cpfLimpo}@secoomed.local`;
+    const email = `${cpfLimpo}@secoomed.local`;
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password: senha,
@@ -191,35 +174,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return {};
   }
 
-  // signOut resiliente — limpa estado local mesmo se o servidor falhar
   async function signOut() {
     if (contadorRef.current) clearInterval(contadorRef.current);
     setMostrarAviso(false);
     try {
       await supabase.auth.signOut();
     } catch {
-      // Ignora erro do servidor — limpeza local garante o logout
+      // ignora
     } finally {
-      limparEstadoAuth();
+      limparTokensLocais();
+      setSession(null);
+      setUser(null);
+      setAssociado(null);
+      setIsAdmin(false);
     }
   }
 
+  // Memoiza o value para evitar re-renders desnecessários nos consumers
+  const contextValue = useMemo(
+    () => ({
+      session,
+      user,
+      associado,
+      isAdmin,
+      isLoading,
+      primeiroAcesso,
+      setPrimeiroAcesso,
+      timerResetTimestampRef: resetTimestampRef,
+      resetarTimer: resetar,
+      signIn,
+      signOut,
+    }),
+    [session, user, associado, isAdmin, isLoading, primeiroAcesso, resetar, resetTimestampRef]
+  );
+
   return (
-    <AuthContext.Provider
-      value={{
-        session,
-        user,
-        associado,
-        isAdmin,
-        isLoading,
-        primeiroAcesso,
-        setPrimeiroAcesso,
-        timerResetTimestampRef: resetTimestampRef,
-        resetarTimer: resetar,
-        signIn,
-        signOut,
-      }}
-    >
+    <AuthContext.Provider value={contextValue}>
       {children}
       <ModalSessaoExpirando
         visivel={mostrarAviso && !!session}
