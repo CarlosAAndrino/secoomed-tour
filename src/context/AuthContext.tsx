@@ -26,6 +26,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [mostrarAviso, setMostrarAviso] = useState(false);
   const [contador, setContador] = useState(300);
   const contadorRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [dataRefreshKey, setDataRefreshKey] = useState(0);
 
   // ─── Idle timer ───────────────────────────────────────────────────────────
   const handleAviso = useCallback(() => {
@@ -87,7 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsAdmin(u.app_metadata?.role === "admin");
   }
 
-  // ─── Auth listener (ÚNICO ponto de gestão de sessão) ──────────────────────
+  // ─── Auth listener ────────────────────────────────────────────────────────
   useEffect(() => {
     let mounted = true;
 
@@ -115,7 +116,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (event, s) => {
       if (!mounted) return;
 
-      // TOKEN_REFRESHED: atualiza referência sem efeitos colaterais
       if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
         setSession(s);
         setUser(s?.user ?? null);
@@ -123,7 +123,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // SIGNED_OUT: limpa tudo e redireciona
       if (event === "SIGNED_OUT") {
         limparTokensLocais();
         setSession(null);
@@ -135,7 +134,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // SIGNED_IN e outros: carrega dados do associado
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) {
@@ -154,10 +152,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // NÃO TEM verificação periódica com getUser() — era a causa de desconexões.
-  // O autoRefreshToken: true do Supabase client cuida da renovação do token.
-  // O onAuthStateChange cuida dos eventos de sessão.
-  // O idle timer cuida do timeout por inatividade.
+  // ─── Visibilitychange centralizado ────────────────────────────────────────
+  // Quando a aba volta do background, renova o token ANTES de sinalizar
+  // para os componentes refazerem fetch. Resolve a race condition.
+  useEffect(() => {
+    const handleVisibility = async () => {
+      if (document.visibilityState !== "visible" || !session) return;
+
+      try {
+        const { data, error } = await supabase.auth.refreshSession();
+        if (error || !data.session) {
+          limparTokensLocais();
+          setSession(null);
+          setUser(null);
+          setAssociado(null);
+          setIsAdmin(false);
+          window.location.href = "/entrar";
+          return;
+        }
+
+        // Token renovado — agora sinaliza os componentes para refazer fetch
+        setSession(data.session);
+        setUser(data.session.user);
+        setDataRefreshKey((k) => k + 1);
+      } catch {
+        // Erro de rede — não desloga, mantém dados em cache
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibility);
+  }, [session]);
 
   // ─── Auth actions ─────────────────────────────────────────────────────────
   async function signIn(cpf: string, senha: string) {
@@ -190,7 +216,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  // Memoiza o value para evitar re-renders desnecessários nos consumers
   const contextValue = useMemo(
     () => ({
       session,
@@ -202,10 +227,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setPrimeiroAcesso,
       timerResetTimestampRef: resetTimestampRef,
       resetarTimer: resetar,
+      dataRefreshKey,
       signIn,
       signOut,
     }),
-    [session, user, associado, isAdmin, isLoading, primeiroAcesso, resetar, resetTimestampRef]
+    [
+      session,
+      user,
+      associado,
+      isAdmin,
+      isLoading,
+      primeiroAcesso,
+      resetar,
+      resetTimestampRef,
+      dataRefreshKey,
+    ]
   );
 
   return (

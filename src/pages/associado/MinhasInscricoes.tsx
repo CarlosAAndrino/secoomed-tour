@@ -19,6 +19,7 @@ import { supabase } from "@/lib/supabase";
 import type { MinhaInscricao, ParticipanteInscricao } from "@/types/database";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { useAuth } from '@/hooks/useAuth'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -383,6 +384,7 @@ export default function MinhasInscricoes() {
   const [reinscrevendoId, setReinscrevendoId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
   const [canceladasAberto, setCanceladasAberto] = useState(false);
+  const { dataRefreshKey } = useAuth()
 
   // ─── Busca inscrições ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -434,18 +436,7 @@ export default function MinhasInscricoes() {
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [reloadKey]);
-
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        setReloadKey((k) => k + 1);
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () =>
-      document.removeEventListener("visibilitychange", handleVisibility);
-  }, []);
+  }, [reloadKey, dataRefreshKey]);
 
   function mostrarFeedback(msg: string) {
     setFeedback(msg);

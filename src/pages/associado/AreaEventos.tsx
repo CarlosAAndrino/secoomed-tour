@@ -192,6 +192,7 @@ export default function AreaEventos() {
   const [reloadKey, setReloadKey] = useState(0);
   const [eventoSelecionado, setEventoSelecionado] =
     useState<EventoLista | null>(null);
+   const { dataRefreshKey } = useAuth()
 
   // ─── Busca eventos com AbortController ──────────────────────────────────────
   useEffect(() => {
@@ -243,19 +244,8 @@ export default function AreaEventos() {
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [reloadKey]);
+  }, [reloadKey, dataRefreshKey]);
 
-  // ─── Recarrega ao voltar do background ──────────────────────────────────────
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        setReloadKey((k) => k + 1);
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () =>
-      document.removeEventListener("visibilitychange", handleVisibility);
-  }, []);
 
   const eventosVisiveis = eventos.filter(
     (e) => e.status_evento !== "realizado"

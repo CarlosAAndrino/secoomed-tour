@@ -7,6 +7,7 @@ import {
 import Header from '@/components/layout/Header'
 import { supabase } from '@/lib/supabase'
 import type { Associado } from '@/types/database'
+import { useAuth } from '@/hooks/useAuth'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -173,7 +174,7 @@ function CardAssociado({
 
 export default function AdminAssociados() {
   const navigate = useNavigate()
-
+  const { dataRefreshKey } = useAuth()
   const [associados, setAssociados]           = useState<Associado[]>([])
   const [admins, setAdmins]                   = useState<AdminInfo[]>([])
   const [carregando, setCarregando]           = useState(true)
@@ -247,20 +248,8 @@ export default function AdminAssociados() {
       clearTimeout(timeoutId)
       controller.abort()
     }
-  }, [reloadKey])
+  }, [reloadKey, dataRefreshKey])
 
-  // ─── Recarrega ao voltar do background ───────────────────────────────────────
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        setReloadKey((k) => k + 1)
-      }
-    }
-
-    document.addEventListener('visibilitychange', handleVisibility)
-    return () =>
-      document.removeEventListener('visibilitychange', handleVisibility)
-  }, [])
 
   // ─── Filtros ──────────────────────────────────────────────────────────────────
   const adminIds = new Set(admins.map(a => a.user_id))

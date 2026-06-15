@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase";
 import type { InscricaoEvento, EventoLista } from "@/types/database";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { useAuth } from '@/hooks/useAuth'
 
 // ─── Funções utilitárias puras ────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ function labelTipo(tipo: string): string {
 export default function AdminInscritos() {
   const { eventoId } = useParams<{ eventoId: string }>();
   const navigate = useNavigate();
-
+  const { dataRefreshKey } = useAuth()
   const [evento, setEvento] = useState<EventoLista | null>(null);
   const [inscritos, setInscritos] = useState<InscricaoEvento[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -115,19 +116,7 @@ export default function AdminInscritos() {
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [eventoId, reloadKey]);
-
-  // ─── Recarrega ao voltar do background ──────────────────────────────────────
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        setReloadKey((k) => k + 1);
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () =>
-      document.removeEventListener("visibilitychange", handleVisibility);
-  }, []);
+  }, [eventoId, reloadKey, dataRefreshKey]);
 
   // ─── Toggle pagamento ──────────────────────────────────────────────────────
   async function handleTogglePago(inscricao: InscricaoEvento) {
