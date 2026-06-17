@@ -185,14 +185,13 @@ function CardEvento({ evento, ativo, onInscrever }: CardEventoProps) {
 // ─── AreaEventos ──────────────────────────────────────────────────────────────
 
 export default function AreaEventos() {
-  const { associado } = useAuth();
+  const {associado, dataRefreshKey } = useAuth();
   const [eventos, setEventos] = useState<EventoLista[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const [eventoSelecionado, setEventoSelecionado] =
     useState<EventoLista | null>(null);
-   const { dataRefreshKey } = useAuth()
 
   // ─── Busca eventos com AbortController ──────────────────────────────────────
   useEffect(() => {

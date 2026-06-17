@@ -19,37 +19,51 @@ import MinhasInscricoes from "./pages/associado/MinhasInscricoes";
 import MeuPerfil from "./pages/associado/MeuPerfil";
 import TimerSessao from "./components/ui/TimerSessao";
 
+const Spinner = () => (
+  <div className="min-h-screen flex items-center justify-center bg-gray-100">
+    <div className="w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full animate-spin" />
+  </div>
+);
+
+function RotaProtegida({
+  children,
+  admin = false,
+}: {
+  children: React.ReactNode;
+  admin?: boolean;
+}) {
+  const { session, isAdmin, isLoading } = useAuth();
+
+  if (isLoading) return <Spinner />;
+  if (!session) return <Navigate to="/entrar" replace />;
+  if (admin && !isAdmin) return <Navigate to="/entrar" replace />;
+
+  return <>{children}</>;
+}
+
 function Rotas() {
   const { session, isAdmin, isLoading, resetarTimer } = useAuth();
   const location = useLocation();
   const resetarRef = useRef(resetarTimer);
 
-  // Mantém a ref sempre atualizada sem causar re-render
   useEffect(() => {
     resetarRef.current = resetarTimer;
   });
 
-  // Reseta o idle timer APENAS em navegação real do usuário
-  // NÃO depende de session — TOKEN_REFRESHED não deve resetar o timer
   useEffect(() => {
     resetarRef.current();
   }, [location.pathname]);
 
-  if (isLoading)
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-
   return (
     <Routes>
-      {/* Públicas */}
+      {/* Públicas — renderizam imediatamente, sem esperar auth */}
       <Route path="/" element={<Home />} />
       <Route
         path="/entrar"
         element={
-          session ? (
+          isLoading ? (
+            <Login />
+          ) : session ? (
             <Navigate to={isAdmin ? "/admin" : "/area"} replace />
           ) : (
             <Login />
@@ -58,86 +72,17 @@ function Rotas() {
       />
 
       {/* Admin */}
-      <Route
-        path="/admin"
-        element={
-          session && isAdmin ? (
-            <AdminEventos />
-          ) : (
-            <Navigate to="/entrar" replace />
-          )
-        }
-      />
-      <Route
-        path="/admin/novo-evento"
-        element={
-          session && isAdmin ? (
-            <AdminFormEvento />
-          ) : (
-            <Navigate to="/entrar" replace />
-          )
-        }
-      />
-      <Route
-        path="/admin/editar-evento/:eventoId"
-        element={
-          session && isAdmin ? (
-            <AdminFormEvento />
-          ) : (
-            <Navigate to="/entrar" replace />
-          )
-        }
-      />
-      <Route
-        path="/admin/inscritos/:eventoId"
-        element={
-          session && isAdmin ? (
-            <AdminInscritos />
-          ) : (
-            <Navigate to="/entrar" replace />
-          )
-        }
-      />
-      <Route
-        path="/admin/associados"
-        element={
-          session && isAdmin ? (
-            <AdminAssociados />
-          ) : (
-            <Navigate to="/entrar" replace />
-          )
-        }
-      />
-      <Route
-        path="/admin/dependentes/:associadoId"
-        element={
-          session && isAdmin ? (
-            <AdminDependentes />
-          ) : (
-            <Navigate to="/entrar" replace />
-          )
-        }
-      />
+      <Route path="/admin" element={<RotaProtegida admin><AdminEventos /></RotaProtegida>} />
+      <Route path="/admin/novo-evento" element={<RotaProtegida admin><AdminFormEvento /></RotaProtegida>} />
+      <Route path="/admin/editar-evento/:eventoId" element={<RotaProtegida admin><AdminFormEvento /></RotaProtegida>} />
+      <Route path="/admin/inscritos/:eventoId" element={<RotaProtegida admin><AdminInscritos /></RotaProtegida>} />
+      <Route path="/admin/associados" element={<RotaProtegida admin><AdminAssociados /></RotaProtegida>} />
+      <Route path="/admin/dependentes/:associadoId" element={<RotaProtegida admin><AdminDependentes /></RotaProtegida>} />
 
       {/* Associado */}
-      <Route
-        path="/area"
-        element={
-          session ? <AreaEventos /> : <Navigate to="/entrar" replace />
-        }
-      />
-      <Route
-        path="/area/inscricoes"
-        element={
-          session ? <MinhasInscricoes /> : <Navigate to="/entrar" replace />
-        }
-      />
-      <Route
-        path="/area/perfil"
-        element={
-          session ? <MeuPerfil /> : <Navigate to="/entrar" replace />
-        }
-      />
+      <Route path="/area" element={<RotaProtegida><AreaEventos /></RotaProtegida>} />
+      <Route path="/area/inscricoes" element={<RotaProtegida><MinhasInscricoes /></RotaProtegida>} />
+      <Route path="/area/perfil" element={<RotaProtegida><MeuPerfil /></RotaProtegida>} />
 
       {/* Catch-all */}
       <Route path="*" element={<Navigate to="/" replace />} />
