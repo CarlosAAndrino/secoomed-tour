@@ -10,9 +10,9 @@ import ModalPrimeiroAcesso from "@/components/ui/ModalPrimeiroAcesso";
 export { AuthContext };
 
 function limparTokensLocais() {
-  Object.keys(sessionStorage)
+  Object.keys(localStorage)
     .filter((k) => k.startsWith("sb-") && k.includes("-auth-token"))
-    .forEach((k) => sessionStorage.removeItem(k));
+    .forEach((k) => localStorage.removeItem(k));
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {

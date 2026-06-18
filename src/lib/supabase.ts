@@ -8,18 +8,24 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Variáveis de ambiente do Supabase não configuradas.')
 }
 
-// Sessão persistida em sessionStorage:
-// - Sobrevive ao F5 (refresh) e à navegação interna na mesma aba.
-// - Sobrevive à troca de abas (o storage não é apagado ao perder foco).
-// - É apagada automaticamente pelo navegador quando a aba/janela é fechada.
-// Isso atende exatamente ao requisito: logout só quando a aba é fechada.
-// Não usar localStorage (sobreviveria ao fechamento) nem marcadores manuais
-// (causavam corrida com persistSession e deslogavam no refresh).
+// Sessão persistida em localStorage (padrão do supabase-js para SPAs no browser).
+//
+// Por que localStorage e NÃO sessionStorage:
+// - localStorage SOBREVIVE ao F5 incondicionalmente (mesmo quando o reload
+//   recria o browsing context). sessionStorage fica VAZIO nesse caso, o que
+//   fazia INITIAL_SESSION vir com session=null e deslogar no refresh.
+// - localStorage é compartilhado entre abas do mesmo domínio. sessionStorage
+//   é isolado por aba, então abrir/trocar de aba lia storage vazio, emitia
+//   SIGNED_OUT e deslogava.
+//
+// O requisito "deslogar ao fechar a aba/janela" é tratado em main.tsx via
+// pagehide + Navigation Timing (distingue fechamento real de F5), sem usar
+// sessionStorage — preservando login no refresh e em múltiplas abas.
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: sessionStorage,
+    storage: localStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
   },
-})  
+})
