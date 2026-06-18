@@ -10,9 +10,9 @@ import ModalPrimeiroAcesso from "@/components/ui/ModalPrimeiroAcesso";
 export { AuthContext };
 
 function limparTokensLocais() {
-  Object.keys(localStorage)
+  Object.keys(sessionStorage)
     .filter((k) => k.startsWith("sb-") && k.includes("-auth-token"))
-    .forEach((k) => localStorage.removeItem(k));
+    .forEach((k) => sessionStorage.removeItem(k));
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -165,29 +165,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ─── Tab sync (visibilitychange) ──────────────────────────────────────────
+  // Ao voltar para a aba, apenas sinaliza para os componentes refazerem o
+  // fetch dos dados. NÃO desloga: getSession() pode retornar null
+  // transitoriamente enquanto o autoRefreshToken (throttled em background)
+  // ainda não rodou — deslogar nesse momento causava logout falso ao trocar
+  // de aba. O supabase-js renova o token sozinho; se o refresh token tiver
+  // de fato expirado, onAuthStateChange emite SIGNED_OUT e o handler acima
+  // redireciona para /entrar.
 
   useEffect(() => {
-    const handleVisibility = async () => {
+    const handleVisibility = () => {
       if (document.visibilityState !== "visible") return;
       if (!sessionRef.current) return;
-
-      try {
-        const {
-          data: { session: freshSession },
-        } = await supabase.auth.getSession();
-
-        if (!freshSession) {
-          limparEstado();
-          window.location.href = "/entrar";
-          return;
-        }
-
-        setSession(freshSession);
-        setUser(freshSession.user);
-        setDataRefreshKey((k) => k + 1);
-      } catch {
-        // Erro de rede — mantém dados em cache
-      }
+      setDataRefreshKey((k) => k + 1);
     };
 
     document.addEventListener("visibilitychange", handleVisibility);
