@@ -7,7 +7,6 @@ import {
 import Header from '@/components/layout/Header'
 import { supabase } from '@/lib/supabase'
 import type { Associado } from '@/types/database'
-import { useAuth } from '@/hooks/useAuth'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -25,14 +24,11 @@ interface ConfirmacaoState {
   tipo: TipoConfirmacao
 }
 
-// ─── Funções utilitárias puras ────────────────────────────────────────────────
-
 function formatarCpf(cpf: string): string {
   return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
 }
 
-// ─── CardAssociado — fora do componente pai ───────────────────────────────────
-// IMPORTANTE: nunca definir componentes dentro de outros componentes.
+// ─── CardAssociado ────────────────────────────────────────────────────────────
 
 interface CardAssociadoProps {
   associado: Associado
@@ -174,7 +170,6 @@ function CardAssociado({
 
 export default function AdminAssociados() {
   const navigate = useNavigate()
-  const { dataRefreshKey } = useAuth()
   const [associados, setAssociados]           = useState<Associado[]>([])
   const [admins, setAdmins]                   = useState<AdminInfo[]>([])
   const [carregando, setCarregando]           = useState(true)
@@ -191,53 +186,56 @@ export default function AdminAssociados() {
   } | null>(null)
   const [reloadKey, setReloadKey]             = useState(0)
 
-  // ─── Busca com AbortController ────────────────────────────────────────────────
+  // ─── Busca ────────────────────────────────────────────────────────────────────
+  // As duas chamadas são DESACOPLADAS: a lista de associados é o essencial e
+  // controla o estado de loading. A lista de admins é secundária — se falhar
+  // (ex: 400), não trava a tela; apenas os admins não aparecem na seção própria.
   useEffect(() => {
     let mounted = true
-    const controller = new AbortController()
-    const timeoutId  = setTimeout(() => controller.abort(), 10_000)
 
     const buscar = async () => {
       setCarregando(true)
       setErro('')
 
+      // 1. ESSENCIAL: lista de associados
       try {
-        const [
-          { data: assocData, error: assocError },
-          { data: adminsData },
-        ] = await Promise.all([
-          supabase
-            .from('associados')
-            .select('*')
-            .order('nome')
-            .abortSignal(controller.signal),
-          supabase.rpc('listar_admins'),
-        ])
+        const { data, error } = await supabase
+          .from('associados')
+          .select('*')
+          .order('nome')
 
-        clearTimeout(timeoutId)
         if (!mounted) return
 
-        if (assocError) {
-          if (assocError.code === 'PGRST301' || assocError.message?.includes('JWT')) {
+        if (error) {
+          if (error.code === 'PGRST301' || error.message?.includes('JWT')) {
             window.location.href = '/entrar'
             return
           }
           setErro('Não foi possível carregar os associados.')
+          setCarregando(false)
           return
         }
 
-        setAssociados((assocData as Associado[]) ?? [])
-        setAdmins((adminsData as AdminInfo[]) ?? [])
-      } catch (err: unknown) {
-        clearTimeout(timeoutId)
+        setAssociados((data as Associado[]) ?? [])
+      } catch {
         if (!mounted) return
-        if (err instanceof Error && err.name === 'AbortError') {
-          setErro('A requisição demorou muito. Verifique sua conexão.')
-        } else {
-          setErro('Erro de conexão. Verifique sua internet.')
+        setErro('Erro de conexão. Verifique sua internet.')
+        setCarregando(false)
+        return
+      }
+
+      // Lista principal OK → libera a tela imediatamente
+      if (mounted) setCarregando(false)
+
+      // 2. SECUNDÁRIO: lista de admins (não bloqueia a tela)
+      try {
+        const { data: adminsData, error: adminsError } = await supabase.rpc('listar_admins')
+        if (!mounted) return
+        if (!adminsError && adminsData) {
+          setAdmins(adminsData as AdminInfo[])
         }
-      } finally {
-        if (mounted) setCarregando(false)
+      } catch {
+        /* admins é opcional — ignora falha */
       }
     }
 
@@ -245,11 +243,8 @@ export default function AdminAssociados() {
 
     return () => {
       mounted = false
-      clearTimeout(timeoutId)
-      controller.abort()
     }
-  }, [reloadKey, dataRefreshKey])
-
+  }, [reloadKey])
 
   // ─── Filtros ──────────────────────────────────────────────────────────────────
   const adminIds = new Set(admins.map(a => a.user_id))
@@ -266,7 +261,6 @@ export default function AdminAssociados() {
   const ativos   = filtrados.filter(a => a.ativo)
   const inativos = filtrados.filter(a => !a.ativo)
 
-  // ─── Feedback toast ──────────────────────────────────────────────────────────
   function mostrarFeedback(msg: string) {
     setFeedback(msg)
     setTimeout(() => setFeedback(''), 3000)
@@ -498,7 +492,7 @@ export default function AdminAssociados() {
           </div>
         )}
 
-        {!carregando && !erro && (
+        {!carregando && !erro && admins.length > 0 && (
           <div className="mt-10">
             <button
               onClick={() => setMostrarAdmins(!mostrarAdmins)}

@@ -8,24 +8,52 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Variáveis de ambiente do Supabase não configuradas.')
 }
 
-// Sessão persistida em localStorage (padrão do supabase-js para SPAs no browser).
-//
-// Por que localStorage e NÃO sessionStorage:
-// - localStorage SOBREVIVE ao F5 incondicionalmente (mesmo quando o reload
-//   recria o browsing context). sessionStorage fica VAZIO nesse caso, o que
-//   fazia INITIAL_SESSION vir com session=null e deslogar no refresh.
-// - localStorage é compartilhado entre abas do mesmo domínio. sessionStorage
-//   é isolado por aba, então abrir/trocar de aba lia storage vazio, emitia
-//   SIGNED_OUT e deslogava.
-//
-// O requisito "deslogar ao fechar a aba/janela" é tratado em main.tsx via
-// pagehide + Navigation Timing (distingue fechamento real de F5), sem usar
-// sessionStorage — preservando login no refresh e em múltiplas abas.
+// fetch com timeout para requisições SEM signal próprio.
+// As queries das páginas já trazem seu próprio AbortController (10s) — essas
+// passam direto. As requisições internas do auth (refresh de token) NÃO trazem
+// signal e, se a aba foi suspensa em segundo plano, podem ficar penduradas para
+// sempre — travando getSession() e, por consequência, TODA query nova.
+// O timeout garante que nenhuma requisição de auth pendure indefinidamente.
+const fetchComTimeout: typeof fetch = (input, init) => {
+  if (init?.signal) {
+    return fetch(input, init)
+  }
+  const controller = new AbortController()
+  const id = setTimeout(() => controller.abort(), 12000)
+  return fetch(input, { ...init, signal: controller.signal }).finally(() =>
+    clearTimeout(id)
+  )
+}
+
+// Lock sem Web Locks API — evita o aviso de lock órfão do gotrue em StrictMode/HMR.
+// A serialização dentro da aba continua garantida pelo controle interno do supabase-js.
+async function lockSemWebLocks<R>(
+  _name: string,
+  _acquireTimeout: number,
+  fn: () => Promise<R>
+): Promise<R> {
+  return await fn()
+}
+
+// Sessão em localStorage: sobrevive a F5 e à troca de abas; compartilhada entre
+// abas do mesmo domínio. (O "deslogar ao fechar a aba" é tratado em main.tsx
+// pelo marcador de sessão de página no sessionStorage.)
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: localStorage,
-    autoRefreshToken: true,
     persistSession: true,
+    // autoRefreshToken DESLIGADO de propósito.
+    // O auto-refresh do supabase-js engancha no visibilitychange e dispara uma
+    // requisição de rede sempre que a aba volta ao foco. Em abas que ficaram em
+    // segundo plano, essa requisição era suspensa pelo navegador e ficava
+    // pendurada, travando getSession() e deixando toda query seguinte em loading
+    // infinito. A renovação do token agora é manual, num intervalo fixo
+    // desacoplado da visibilidade (ver o useEffect de refresh em AuthContext).
+    autoRefreshToken: false,
     detectSessionInUrl: false,
+    lock: lockSemWebLocks,
+  },
+  global: {
+    fetch: fetchComTimeout,
   },
 })

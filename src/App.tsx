@@ -1,10 +1,8 @@
-import { useEffect, useRef } from "react";
 import {
   BrowserRouter,
   Routes,
   Route,
   Navigate,
-  useLocation,
 } from "react-router-dom";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
@@ -17,7 +15,6 @@ import AdminDependentes from "./pages/admin/AdminDependentes";
 import AreaEventos from "./pages/associado/AreaEventos";
 import MinhasInscricoes from "./pages/associado/MinhasInscricoes";
 import MeuPerfil from "./pages/associado/MeuPerfil";
-import TimerSessao from "./components/ui/TimerSessao";
 
 const Spinner = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -42,17 +39,7 @@ function RotaProtegida({
 }
 
 function Rotas() {
-  const { session, isAdmin, isLoading, resetarTimer } = useAuth();
-  const location = useLocation();
-  const resetarRef = useRef(resetarTimer);
-
-  useEffect(() => {
-    resetarRef.current = resetarTimer;
-  });
-
-  useEffect(() => {
-    resetarRef.current();
-  }, [location.pathname]);
+  const { session, isAdmin, isLoading } = useAuth();
 
   return (
     <Routes>
@@ -94,7 +81,6 @@ export default function App() {
   return (
     <BrowserRouter>
       <Rotas />
-      <TimerSessao />
     </BrowserRouter>
   );
 }

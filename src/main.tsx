@@ -3,36 +3,25 @@ import "./index.css";
 import App from "./App";
 import { AuthProvider } from "./context/AuthContext";
 
-// ─── Logout ao fechar a aba/janela (sem quebrar F5 nem múltiplas abas) ──────
+// ─── Detecção de fechamento de aba vs. F5 (via marcador de sessão) ──────────
 //
-// A sessão fica em localStorage (sobrevive a F5 e é compartilhada entre abas).
-// Para ainda "deslogar ao fechar", ouvimos `pagehide` e, no momento em que a
-// página está sendo descartada, decidimos se foi um RELOAD (F5) ou um
-// fechamento/saída real:
+// PROBLEMA: o navegador não fornece um sinal confiável para distinguir
+// "fechar a aba" de "atualizar (F5)". O evento pagehide dispara nos dois
+// casos e a Navigation Timing API não detecta reload dentro dele — foi por
+// isso que a abordagem anterior apagava o token no F5.
 //
-// - Navigation Timing API: se a navegação ATUAL foi do tipo "reload", então
-//   este pagehide pertence a um F5 → NÃO limpamos o token.
-// - `event.persisted === true` significa que a página vai para o bfcache
-//   (não é fechamento) → NÃO limpamos.
-// - Caso contrário (fechar aba, fechar janela, navegar para outro site) →
-//   limpamos o token de auth do localStorage, exigindo login no próximo acesso.
+// SOLUÇÃO: usar o sessionStorage como marcador de "sessão de página viva".
+// - sessionStorage SOBREVIVE ao F5 (é a mesma sessão de página).
+// - sessionStorage é APAGADO pelo navegador ao FECHAR a aba/janela.
+// - sessionStorage permanece intacto ao trocar de aba.
 //
-// Importante: trocar de aba NÃO dispara pagehide (dispara visibilitychange),
-// então a sessão permanece intacta ao alternar abas.
+// A decisão é tomada na INICIALIZAÇÃO (antes do React montar), que é o ponto
+// onde a detecção é confiável — diferente do pagehide, onde ela falhava:
+// - sessionStorage TEM o marcador  → é um F5 → MANTÉM a sessão.
+// - sessionStorage VAZIO mas localStorage TEM token → a aba foi fechada e
+//   reaberta → LIMPA o token, exigindo login.
 
-function navegacaoAtualEhReload(): boolean {
-  try {
-    const entries = performance.getEntriesByType(
-      "navigation"
-    ) as PerformanceNavigationTiming[];
-    if (entries.length > 0) {
-      return entries[0].type === "reload";
-    }
-  } catch {
-    /* ignora — em caso de dúvida, trata como não-reload */
-  }
-  return false;
-}
+const MARCADOR_ABA = "secoomed_aba_viva";
 
 function limparTokenAuth() {
   Object.keys(localStorage)
@@ -40,14 +29,21 @@ function limparTokenAuth() {
     .forEach((k) => localStorage.removeItem(k));
 }
 
-window.addEventListener("pagehide", (event: PageTransitionEvent) => {
-  // Página indo para bfcache (voltará intacta) → não é fechamento.
-  if (event.persisted) return;
-  // F5 / reload → mantém a sessão.
-  if (navegacaoAtualEhReload()) return;
-  // Fechamento real ou navegação para fora → desloga.
-  limparTokenAuth();
-});
+(function decidirSessaoNaInicializacao() {
+  const marcadorPresente = sessionStorage.getItem(MARCADOR_ABA);
+  const temToken = Object.keys(localStorage).some(
+    (k) => k.startsWith("sb-") && k.includes("-auth-token")
+  );
+
+  // Sem marcador + com token = aba nova (fechada e reaberta) → limpa a sessão.
+  if (!marcadorPresente && temToken) {
+    limparTokenAuth();
+  }
+
+  // (Re)grava o marcador desta sessão de página.
+  // Sobrevive ao F5; é apagado pelo navegador ao fechar a aba.
+  sessionStorage.setItem(MARCADOR_ABA, "1");
+})();
 
 createRoot(document.getElementById("root")!).render(
   <AuthProvider>

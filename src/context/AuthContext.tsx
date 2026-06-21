@@ -3,8 +3,6 @@ import { supabase } from "@/lib/supabase";
 import type { Session, User } from "@supabase/supabase-js";
 import type { Associado } from "@/types/database";
 import { AuthContext } from "./authContextDef";
-import { useIdleTimer } from "@/hooks/useIdleTimer";
-import ModalSessaoExpirando from "@/components/ui/ModalSessaoExpirando";
 import ModalPrimeiroAcesso from "@/components/ui/ModalPrimeiroAcesso";
 
 export { AuthContext };
@@ -13,6 +11,7 @@ function limparTokensLocais() {
   Object.keys(localStorage)
     .filter((k) => k.startsWith("sb-") && k.includes("-auth-token"))
     .forEach((k) => localStorage.removeItem(k));
+  sessionStorage.removeItem("secoomed_aba_viva");
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -22,53 +21,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [primeiroAcesso, setPrimeiroAcesso] = useState(false);
-  const [mostrarAviso, setMostrarAviso] = useState(false);
-  const [contador, setContador] = useState(300);
-  const contadorRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [dataRefreshKey, setDataRefreshKey] = useState(0);
+
+  // dataRefreshKey permanece fixo no contexto porque as páginas o usam nos
+  // arrays de dependência dos seus useEffect de fetch.
+  const dataRefreshKey = 0;
 
   const sessionRef = useRef<Session | null>(null);
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
-
-  // ─── Idle timer ───────────────────────────────────────────────────────────
-
-  const handleAviso = useCallback(() => {
-    setContador(300);
-    setMostrarAviso(true);
-    contadorRef.current = setInterval(() => setContador((c) => c - 1), 1000);
-  }, []);
-
-  const handleExpirar = useCallback(async () => {
-    if (contadorRef.current) clearInterval(contadorRef.current);
-    setMostrarAviso(false);
-    try {
-      await supabase.auth.signOut();
-    } catch {
-      /* ignora */
-    }
-    limparTokensLocais();
-    setSession(null);
-    setUser(null);
-    setAssociado(null);
-    setIsAdmin(false);
-    window.location.href = "/entrar";
-  }, []);
-
-  const { resetar, resetTimestampRef } = useIdleTimer({
-    tempoLimite: 30 * 60 * 1000,
-    tempoAviso: 5 * 60 * 1000,
-    onAviso: handleAviso,
-    onExpirar: handleExpirar,
-    ativo: !!session,
-  });
-
-  function handleContinuar() {
-    if (contadorRef.current) clearInterval(contadorRef.current);
-    setMostrarAviso(false);
-    resetar();
-  }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -164,29 +125,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // ─── Tab sync (visibilitychange) ──────────────────────────────────────────
-  // Ao voltar para a aba, apenas sinaliza para os componentes refazerem o
-  // fetch dos dados. NÃO desloga: getSession() pode retornar null
-  // transitoriamente enquanto o autoRefreshToken (throttled em background)
-  // ainda não rodou — deslogar nesse momento causava logout falso ao trocar
-  // de aba. O supabase-js renova o token sozinho; se o refresh token tiver
-  // de fato expirado, onAuthStateChange emite SIGNED_OUT e o handler acima
-  // redireciona para /entrar.
+  // ─── Renovação periódica do token ─────────────────────────────────────────
+  // Substitui o autoRefreshToken do supabase-js (desligado em supabase.ts).
+  // Roda num intervalo fixo, desacoplado da visibilidade da aba.
 
   useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState !== "visible") return;
+    const TRINTA_MIN = 30 * 60 * 1000;
+    const id = setInterval(async () => {
       if (!sessionRef.current) return;
-      setDataRefreshKey((k) => k + 1);
-    };
-
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
+      try {
+        await supabase.auth.refreshSession();
+      } catch {
+        /* rede falhou — tenta no próximo ciclo */
+      }
+    }, TRINTA_MIN);
+    return () => clearInterval(id);
   }, []);
 
-  // ─── Auth actions (useCallback para estabilidade no useMemo) ──────────────
+  // ─── Auth actions ─────────────────────────────────────────────────────────
 
   const signIn = useCallback(async (cpf: string, senha: string) => {
     const cpfLimpo = cpf.replace(/[^0-9]/g, "");
@@ -204,8 +160,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    if (contadorRef.current) clearInterval(contadorRef.current);
-    setMostrarAviso(false);
     try {
       await supabase.auth.signOut();
     } catch {
@@ -231,35 +185,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       primeiroAcesso,
       setPrimeiroAcesso,
-      timerResetTimestampRef: resetTimestampRef,
-      resetarTimer: resetar,
       dataRefreshKey,
       signIn,
       signOut,
     }),
-    [
-      session,
-      user,
-      associado,
-      isAdmin,
-      isLoading,
-      primeiroAcesso,
-      resetar,
-      resetTimestampRef,
-      dataRefreshKey,
-      signIn,
-      signOut,
-    ]
+    [session, user, associado, isAdmin, isLoading, primeiroAcesso, signIn, signOut]
   );
 
   return (
     <AuthContext.Provider value={contextValue}>
       {children}
-      <ModalSessaoExpirando
-        visivel={mostrarAviso && !!session}
-        segundosRestantes={contador}
-        onContinuar={handleContinuar}
-      />
       <ModalPrimeiroAcesso
         visivel={!!session && primeiroAcesso}
         onConcluido={() => setPrimeiroAcesso(false)}
