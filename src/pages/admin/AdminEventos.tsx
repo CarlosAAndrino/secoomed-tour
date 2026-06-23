@@ -15,6 +15,19 @@ function formatarData(data: string): string {
   return format(new Date(data), "dd 'de' MMMM 'de' yyyy 'às' HH:mm", { locale: ptBR });
 }
 
+// ─── Log de diagnóstico autônomo (sem dependência externa) ──────────────────
+// Remover quando o bug de loading infinito for confirmado resolvido.
+function logLoading(evento: string, payload?: Record<string, unknown>) {
+  // eslint-disable-next-line no-console
+  console.log(
+    `%c[LOADING ${Math.round(performance.now())}ms] %cAdminEventos %c${evento}`,
+    "color:#888",
+    "color:#16a34a;font-weight:bold",
+    "color:#2563eb;font-weight:bold",
+    payload ?? ""
+  );
+}
+
 function badgeStatus(status: string): React.ReactNode {
   switch (status) {
     case "aberto":    return <span className="badge-green">Inscrições abertas</span>;
@@ -85,38 +98,103 @@ export default function AdminEventos() {
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    let mounted = true;
+    // `ativo` indica se ESTA execução do efeito ainda é a vigente.
+    // O timeout dispara um abort "real" (timeout). O cleanup dispara um abort
+    // "de recriação". Precisamos distinguir os dois.
+    let ativo = true;
+    let abortPorTimeout = false;
+
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10_000);
+    const timeoutId = setTimeout(() => {
+      abortPorTimeout = true;
+      controller.abort();
+    }, 10_000);
 
     const buscar = async () => {
+      logLoading("LOADING_START", { reloadKey, dataRefreshKey });
       setCarregando(true);
       setErro("");
+
       try {
         const { data, error } = await supabase
           .from("vw_eventos_lista")
           .select("*")
           .order("data_evento", { ascending: false })
           .abortSignal(controller.signal);
+
         clearTimeout(timeoutId);
-        if (!mounted) return;
+
+        // Erro lógico retornado pelo supabase-js (não lança exceção).
         if (error) {
-          if (error.code === "PGRST301" || error.message?.includes("JWT")) { window.location.href = "/entrar"; return; }
+          // Sessão inválida → vai para login.
+          if (error.code === "PGRST301" || error.message?.includes("JWT")) {
+            logLoading("LOADING_ERROR", { motivo: "JWT", code: error.code });
+            window.location.href = "/entrar";
+            return;
+          }
+          // Se esta execução não é mais a vigente, sai em silêncio.
+          if (!ativo) {
+            logLoading("LOADING_ABORT", { motivo: "erro em execucao obsoleta" });
+            return;
+          }
+          logLoading("LOADING_ERROR", { motivo: error.message });
           setErro("Não foi possível carregar os eventos.");
+          setCarregando(false);
           return;
         }
+
+        // Sucesso. Se esta execução foi superada por outra, não toca no estado
+        // (a execução vigente cuidará disso).
+        if (!ativo) {
+          logLoading("LOADING_ABORT", { motivo: "sucesso em execucao obsoleta" });
+          return;
+        }
+
         setEventos((data as EventoLista[]) ?? []);
+        setCarregando(false);
+        logLoading("LOADING_SUCCESS", { qtd: (data as EventoLista[])?.length ?? 0 });
       } catch (err: unknown) {
         clearTimeout(timeoutId);
-        if (!mounted) return;
-        if (err instanceof Error && err.name === "AbortError") setErro("A requisição demorou muito.");
-        else setErro("Erro de conexão.");
+
+        const ehAbort = err instanceof Error && err.name === "AbortError";
+
+        if (ehAbort) {
+          // CAMINHO CRÍTICO: AbortError.
+          if (abortPorTimeout && ativo) {
+            // Abort por TIMEOUT, e esta execução ainda é a vigente:
+            // é um erro real para o usuário → mostra erro e LIBERA o loading.
+            logLoading("LOADING_ABORT", { motivo: "timeout", liberaLoading: true });
+            setErro("A requisição demorou muito. Verifique sua conexão.");
+            setCarregando(false);
+          } else {
+            // Abort por RECRIAÇÃO do efeito (cleanup): a execução nova assume.
+            // NÃO mexe no estado e NÃO deixa loading preso — a nova execução
+            // já chamou setCarregando(true) e vai resolvê-lo.
+            logLoading("LOADING_ABORT", { motivo: "recriacao", liberaLoading: false });
+          }
+          return;
+        }
+
+        // Erro real (rede, etc.).
+        if (!ativo) {
+          logLoading("LOADING_ABORT", { motivo: "excecao em execucao obsoleta" });
+          return;
+        }
+        logLoading("LOADING_ERROR", { motivo: (err as Error)?.name ?? "desconhecido" });
+        setErro("Erro de conexão.");
+        setCarregando(false);
       } finally {
-        if (mounted) setCarregando(false);
+        logLoading("LOADING_END", { ativo });
       }
     };
+
     buscar();
-    return () => { mounted = false; clearTimeout(timeoutId); controller.abort(); };
+
+    return () => {
+      ativo = false;
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, [reloadKey, dataRefreshKey]);
 
   async function handleExcluir(id: string) {

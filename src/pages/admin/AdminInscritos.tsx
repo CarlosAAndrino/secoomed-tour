@@ -12,8 +12,7 @@ import type { InscricaoEvento, EventoLista } from "@/types/database";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useAuth } from '@/hooks/useAuth'
-
-// ─── Funções utilitárias puras ────────────────────────────────────────────────
+import { loadingStart, loadingEnd, loadingError, diag } from "@/lib/diag";
 
 function formatarData(data: string): string {
   return format(new Date(data), "dd/MM/yyyy", { locale: ptBR });
@@ -36,8 +35,6 @@ function labelTipo(tipo: string): string {
   }
 }
 
-// ─── AdminInscritos ───────────────────────────────────────────────────────────
-
 export default function AdminInscritos() {
   const { eventoId } = useParams<{ eventoId: string }>();
   const navigate = useNavigate();
@@ -58,6 +55,7 @@ export default function AdminInscritos() {
     const timeoutId = setTimeout(() => controller.abort(), 10_000);
 
     const buscar = async () => {
+      loadingStart("AdminInscritos", "fetch_inscritos", { eventoId });
       setCarregando(true);
       setErro("");
 
@@ -86,6 +84,7 @@ export default function AdminInscritos() {
 
         if (evError || inscError) {
           const error = evError ?? inscError;
+          loadingError("AdminInscritos", "fetch_inscritos", { erro: error?.message, code: error?.code });
           if (error?.code === "PGRST301" || error?.message?.includes("JWT")) {
             window.location.href = "/entrar";
             return;
@@ -96,9 +95,11 @@ export default function AdminInscritos() {
 
         setEvento((ev as EventoLista) ?? null);
         setInscritos((insc as InscricaoEvento[]) ?? []);
+        loadingEnd("AdminInscritos", "fetch_inscritos", { qtd: (insc as InscricaoEvento[])?.length ?? 0 });
       } catch (err: unknown) {
         clearTimeout(timeoutId);
         if (!mounted) return;
+        loadingError("AdminInscritos", "fetch_inscritos", { erro: (err as Error)?.name });
         if (err instanceof Error && err.name === "AbortError") {
           setErro("A requisição demorou muito. Verifique sua conexão.");
         } else {
@@ -118,59 +119,81 @@ export default function AdminInscritos() {
     };
   }, [eventoId, reloadKey, dataRefreshKey]);
 
-  // ─── Toggle pagamento ──────────────────────────────────────────────────────
+  // ─── Toggle pagamento (AÇÃO INSTRUMENTADA) ──────────────────────────────────
   async function handleTogglePago(inscricao: InscricaoEvento) {
+    const acao = "toggle_pago";
+    diag("AdminInscritos", "CLICK", { acao, id: inscricao.inscricao_id });
+    loadingStart("AdminInscritos", acao, { id: inscricao.inscricao_id });
     setAtualizandoId(inscricao.inscricao_id);
 
     const novoPago = !inscricao.pago;
-    const { error } = await supabase
-      .from("inscricoes")
-      .update({ pago: novoPago })
-      .eq("id", inscricao.inscricao_id);
+    try {
+      diag("AdminInscritos", "ANTES_UPDATE", { acao, id: inscricao.inscricao_id });
+      const { error } = await supabase
+        .from("inscricoes")
+        .update({ pago: novoPago })
+        .eq("id", inscricao.inscricao_id);
+      diag("AdminInscritos", "DEPOIS_UPDATE", { acao, id: inscricao.inscricao_id, temErro: !!error });
 
-    if (error) {
+      if (error) {
+        loadingError("AdminInscritos", acao, { erro: error.message });
+        setFeedback("Erro ao atualizar pagamento.");
+      } else {
+        setInscritos((prev) =>
+          prev.map((i) =>
+            i.inscricao_id === inscricao.inscricao_id
+              ? { ...i, pago: novoPago }
+              : i
+          )
+        );
+        setFeedback(
+          novoPago
+            ? `Pagamento de ${inscricao.participante_nome.split(" ")[0]} confirmado.`
+            : `Pagamento de ${inscricao.participante_nome.split(" ")[0]} desmarcado.`
+        );
+        loadingEnd("AdminInscritos", acao, { novoPago });
+      }
+    } catch (e) {
+      loadingError("AdminInscritos", acao, { erro: (e as Error)?.name });
       setFeedback("Erro ao atualizar pagamento.");
-    } else {
-      setInscritos((prev) =>
-        prev.map((i) =>
-          i.inscricao_id === inscricao.inscricao_id
-            ? { ...i, pago: novoPago }
-            : i
-        )
-      );
-      setFeedback(
-        novoPago
-          ? `Pagamento de ${inscricao.participante_nome.split(" ")[0]} confirmado.`
-          : `Pagamento de ${inscricao.participante_nome.split(" ")[0]} desmarcado.`
-      );
     }
 
     setAtualizandoId(null);
     setTimeout(() => setFeedback(""), 3000);
   }
 
-  // ─── Marcar todos como pagos ────────────────────────────────────────────────
+  // ─── Marcar todos como pagos (AÇÃO INSTRUMENTADA) ───────────────────────────
   async function handleMarcarTodosPagos() {
     if (!eventoId) return;
     const naoPagos = confirmados.filter((i) => !i.pago);
     if (naoPagos.length === 0) return;
 
+    const acao = "marcar_todos_pagos";
+    diag("AdminInscritos", "CLICK", { acao, qtd: naoPagos.length });
+    loadingStart("AdminInscritos", acao, { qtd: naoPagos.length });
     setAtualizandoId("todos");
 
-    const { error } = await supabase
-      .from("inscricoes")
-      .update({ pago: true })
-      .eq("evento_id", eventoId)
-      .eq("status", "confirmada")
-      .eq("pago", false);
+    try {
+      diag("AdminInscritos", "ANTES_UPDATE", { acao });
+      const { error } = await supabase
+        .from("inscricoes")
+        .update({ pago: true })
+        .eq("evento_id", eventoId)
+        .eq("status", "confirmada")
+        .eq("pago", false);
+      diag("AdminInscritos", "DEPOIS_UPDATE", { acao, temErro: !!error });
 
-    if (error) {
+      if (error) {
+        loadingError("AdminInscritos", acao, { erro: error.message });
+        setFeedback("Erro ao atualizar pagamentos.");
+      } else {
+        setInscritos((prev) => prev.map((i) => ({ ...i, pago: true })));
+        setFeedback(`${naoPagos.length} inscrição(ões) marcada(s) como paga(s).`);
+        loadingEnd("AdminInscritos", acao, {});
+      }
+    } catch (e) {
+      loadingError("AdminInscritos", acao, { erro: (e as Error)?.name });
       setFeedback("Erro ao atualizar pagamentos.");
-    } else {
-      setInscritos((prev) =>
-        prev.map((i) => ({ ...i, pago: true }))
-      );
-      setFeedback(`${naoPagos.length} inscrição(ões) marcada(s) como paga(s).`);
     }
 
     setAtualizandoId(null);
@@ -191,7 +214,6 @@ export default function AdminInscritos() {
     <div className="min-h-screen flex flex-col bg-gray-100">
       <Header />
 
-      {/* Toast */}
       {feedback && (
         <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-gray-800 text-white text-sm font-medium px-5 py-3 rounded-xl shadow-lg animate-fade-in">
           <CheckCircle size={16} className="text-green-400" />
@@ -200,7 +222,6 @@ export default function AdminInscritos() {
       )}
 
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 pt-28 pb-12">
-        {/* Voltar */}
         <button
           onClick={() => navigate("/admin")}
           className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition-colors mb-6"
@@ -209,7 +230,6 @@ export default function AdminInscritos() {
           Voltar para eventos
         </button>
 
-        {/* Título */}
         <div className="text-center mb-8">
           <h1 className="font-display text-2xl font-bold text-gray-800">
             {evento?.destino ?? (carregando ? "Carregando..." : "Evento")}
@@ -222,14 +242,12 @@ export default function AdminInscritos() {
           )}
         </div>
 
-        {/* Loading */}
         {carregando && (
           <div className="flex justify-center py-20">
             <div className="w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full animate-spin" />
           </div>
         )}
 
-        {/* Erro */}
         {!carregando && erro && (
           <div className="flex flex-col items-center gap-4 py-16">
             <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
@@ -246,7 +264,6 @@ export default function AdminInscritos() {
           </div>
         )}
 
-        {/* Resumo financeiro + botão marcar todos */}
         {!carregando && !erro && confirmados.length > 0 && (
           <div className="bg-white rounded-2xl shadow-card border border-surface-200 px-6 py-4 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex flex-wrap gap-6 text-sm">
@@ -293,7 +310,6 @@ export default function AdminInscritos() {
           </div>
         )}
 
-        {/* Tabela */}
         {!carregando && !erro && (
           <div className="bg-white rounded-2xl shadow-card border border-surface-200 overflow-hidden">
             {confirmados.length === 0 ? (
@@ -305,27 +321,13 @@ export default function AdminInscritos() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-surface-200 bg-surface-50">
-                      <th className="text-left px-5 py-3 font-semibold text-gray-600">
-                        #
-                      </th>
-                      <th className="text-left px-5 py-3 font-semibold text-gray-600">
-                        Nome
-                      </th>
-                      <th className="text-left px-5 py-3 font-semibold text-gray-600">
-                        Tipo
-                      </th>
-                      <th className="text-left px-5 py-3 font-semibold text-gray-600">
-                        Valor
-                      </th>
-                      <th className="text-left px-5 py-3 font-semibold text-gray-600">
-                        ID Assoc.
-                      </th>
-                      <th className="text-left px-5 py-3 font-semibold text-gray-600">
-                        Reserva
-                      </th>
-                      <th className="text-center px-5 py-3 font-semibold text-gray-600">
-                        Pago
-                      </th>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600">#</th>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600">Nome</th>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600">Tipo</th>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600">Valor</th>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600">ID Assoc.</th>
+                      <th className="text-left px-5 py-3 font-semibold text-gray-600">Reserva</th>
+                      <th className="text-center px-5 py-3 font-semibold text-gray-600">Pago</th>
                     </tr>
                   </thead>
                   <tbody>
