@@ -12,6 +12,7 @@ import AdminInscritos from "./pages/admin/AdminInscritos";
 import AdminFormEvento from "./pages/admin/AdminFormEvento";
 import AdminAssociados from "./pages/admin/AdminAssociados";
 import AdminDependentes from "./pages/admin/AdminDependentes";
+import AdminImportacao from "./pages/admin/AdminImportacao";
 import AreaEventos from "./pages/associado/AreaEventos";
 import MinhasInscricoes from "./pages/associado/MinhasInscricoes";
 import MeuPerfil from "./pages/associado/MeuPerfil";
@@ -64,6 +65,7 @@ function Rotas() {
       <Route path="/admin/editar-evento/:eventoId" element={<RotaProtegida admin><AdminFormEvento /></RotaProtegida>} />
       <Route path="/admin/inscritos/:eventoId" element={<RotaProtegida admin><AdminInscritos /></RotaProtegida>} />
       <Route path="/admin/associados" element={<RotaProtegida admin><AdminAssociados /></RotaProtegida>} />
+      <Route path="/admin/importar" element={<RotaProtegida admin><AdminImportacao /></RotaProtegida>} />
       <Route path="/admin/dependentes/:associadoId" element={<RotaProtegida admin><AdminDependentes /></RotaProtegida>} />
 
       {/* Associado */}

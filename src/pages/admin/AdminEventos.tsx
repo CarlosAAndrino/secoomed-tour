@@ -18,7 +18,6 @@ function formatarData(data: string): string {
 // ─── Log de diagnóstico autônomo (sem dependência externa) ──────────────────
 // Remover quando o bug de loading infinito for confirmado resolvido.
 function logLoading(evento: string, payload?: Record<string, unknown>) {
-  // eslint-disable-next-line no-console
   console.log(
     `%c[LOADING ${Math.round(performance.now())}ms] %cAdminEventos %c${evento}`,
     "color:#888",
@@ -124,15 +123,12 @@ export default function AdminEventos() {
 
         clearTimeout(timeoutId);
 
-        // Erro lógico retornado pelo supabase-js (não lança exceção).
         if (error) {
-          // Sessão inválida → vai para login.
           if (error.code === "PGRST301" || error.message?.includes("JWT")) {
             logLoading("LOADING_ERROR", { motivo: "JWT", code: error.code });
             window.location.href = "/entrar";
             return;
           }
-          // Se esta execução não é mais a vigente, sai em silêncio.
           if (!ativo) {
             logLoading("LOADING_ABORT", { motivo: "erro em execucao obsoleta" });
             return;
@@ -143,8 +139,6 @@ export default function AdminEventos() {
           return;
         }
 
-        // Sucesso. Se esta execução foi superada por outra, não toca no estado
-        // (a execução vigente cuidará disso).
         if (!ativo) {
           logLoading("LOADING_ABORT", { motivo: "sucesso em execucao obsoleta" });
           return;
@@ -159,23 +153,16 @@ export default function AdminEventos() {
         const ehAbort = err instanceof Error && err.name === "AbortError";
 
         if (ehAbort) {
-          // CAMINHO CRÍTICO: AbortError.
           if (abortPorTimeout && ativo) {
-            // Abort por TIMEOUT, e esta execução ainda é a vigente:
-            // é um erro real para o usuário → mostra erro e LIBERA o loading.
             logLoading("LOADING_ABORT", { motivo: "timeout", liberaLoading: true });
             setErro("A requisição demorou muito. Verifique sua conexão.");
             setCarregando(false);
           } else {
-            // Abort por RECRIAÇÃO do efeito (cleanup): a execução nova assume.
-            // NÃO mexe no estado e NÃO deixa loading preso — a nova execução
-            // já chamou setCarregando(true) e vai resolvê-lo.
             logLoading("LOADING_ABORT", { motivo: "recriacao", liberaLoading: false });
           }
           return;
         }
 
-        // Erro real (rede, etc.).
         if (!ativo) {
           logLoading("LOADING_ABORT", { motivo: "excecao em execucao obsoleta" });
           return;

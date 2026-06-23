@@ -49,9 +49,7 @@ export function diag(source: string, event: string, payload?: DiagPayload) {
   buffer.push(entry);
   if (buffer.length > MAX_BUFFER) buffer.shift();
 
-  // Log colorido e legível no console.
   const prefixo = `%c[DIAG ${rel}ms] %c${source} %c${event}`;
-  // eslint-disable-next-line no-console
   console.log(
     prefixo,
     "color:#888",
@@ -116,11 +114,8 @@ declare global {
 if (typeof window !== "undefined") {
   window.__diagBuffer = buffer;
   window.__diag = () => {
-    // eslint-disable-next-line no-console
     console.table(buffer.slice(-50));
-    // eslint-disable-next-line no-console
     console.log("[DIAG] Estado vivo:", JSON.parse(JSON.stringify(estado)));
-    // eslint-disable-next-line no-console
     console.log(
       "[DIAG] getSession pendentes AGORA:",
       estado.getSessionEmVoo,
