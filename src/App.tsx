@@ -13,6 +13,7 @@ import AdminFormEvento from "./pages/admin/AdminFormEvento";
 import AdminAssociados from "./pages/admin/AdminAssociados";
 import AdminDependentes from "./pages/admin/AdminDependentes";
 import AdminImportacao from "./pages/admin/AdminImportacao";
+import AdminAdministradores from "./pages/admin/AdminAdministradores";
 import AreaEventos from "./pages/associado/AreaEventos";
 import MinhasInscricoes from "./pages/associado/MinhasInscricoes";
 import MeuPerfil from "./pages/associado/MeuPerfil";
@@ -44,7 +45,7 @@ function Rotas() {
 
   return (
     <Routes>
-      {/* Públicas — renderizam imediatamente, sem esperar auth */}
+      {/* Públicas */}
       <Route path="/" element={<Home />} />
       <Route
         path="/entrar"
@@ -67,6 +68,7 @@ function Rotas() {
       <Route path="/admin/associados" element={<RotaProtegida admin><AdminAssociados /></RotaProtegida>} />
       <Route path="/admin/importar" element={<RotaProtegida admin><AdminImportacao /></RotaProtegida>} />
       <Route path="/admin/dependentes/:associadoId" element={<RotaProtegida admin><AdminDependentes /></RotaProtegida>} />
+      <Route path="/admin/administradores" element={<RotaProtegida admin><AdminAdministradores /></RotaProtegida>} />
 
       {/* Associado */}
       <Route path="/area" element={<RotaProtegida><AreaEventos /></RotaProtegida>} />

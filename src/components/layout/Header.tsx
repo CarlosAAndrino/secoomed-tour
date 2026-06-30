@@ -108,6 +108,9 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
                 <Link to="/admin/associados" className="text-gray-600 hover:text-green-700 font-medium transition-colors">
                   Associados
                 </Link>
+                <Link to="/admin/administradores" className="text-gray-600 hover:text-green-700 font-medium transition-colors">
+                  Administradores
+                </Link>
               </>
             )}
 
@@ -209,6 +212,7 @@ export default function Header({ mostrarEntrar = true }: HeaderProps) {
             <>
               <Link to="/admin" className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block" onClick={() => setMenuAberto(false)}>Eventos</Link>
               <Link to="/admin/associados" className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block" onClick={() => setMenuAberto(false)}>Associados</Link>
+              <Link to="/admin/administradores" className="text-left text-gray-700 font-medium py-2.5 border-b border-gray-100 block" onClick={() => setMenuAberto(false)}>Administradores</Link>
             </>
           )}
 
