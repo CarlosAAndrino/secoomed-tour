@@ -1,30 +1,23 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Search,
-  UserCheck,
-  UserX,
-  KeyRound,
-  ChevronDown,
-  ChevronUp,
-  AlertCircle,
-  ArrowLeft,
-  CheckCircle,
-  Upload,
-  Users,
-  ShieldCheck,
+  Search, UserCheck, UserX, KeyRound, ChevronDown, ChevronUp,
+  AlertCircle, ArrowLeft, CheckCircle, Upload, Users, ShieldCheck,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { supabase } from "@/lib/supabase";
 import type { Associado } from "@/types/database";
-
-// ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface AdminInfo {
   user_id: string;
   email: string;
   nome: string;
   cpf: string;
+}
+
+// Estende Associado com a contagem trazida pelo embed PostgREST.
+interface AssociadoComContagem extends Associado {
+  qtd_dependentes: number;
 }
 
 type TipoConfirmacao = "inativar" | "ativar" | "senha";
@@ -41,7 +34,7 @@ function formatarCpf(cpf: string): string {
 // ─── CardAssociado ────────────────────────────────────────────────────────────
 
 interface CardAssociadoProps {
-  associado: Associado;
+  associado: AssociadoComContagem;
   confirmando: ConfirmacaoState | null;
   processando: boolean;
   onVerDependentes: (id: string) => void;
@@ -52,31 +45,21 @@ interface CardAssociadoProps {
 }
 
 function CardAssociado({
-  associado,
-  confirmando,
-  processando,
-  onVerDependentes,
-  onConfirmar,
-  onCancelarConfirmacao,
-  onAtivarInativar,
-  onRedefinirSenha,
+  associado, confirmando, processando,
+  onVerDependentes, onConfirmar, onCancelarConfirmacao,
+  onAtivarInativar, onRedefinirSenha,
 }: CardAssociadoProps) {
+  // Botão desabilitado quando associado não possui dependentes
+  const semDependentes = associado.qtd_dependentes === 0;
+
   return (
-    <div
-      className={`bg-white rounded-2xl shadow-card border border-surface-200 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${!associado.ativo ? "opacity-60" : ""}`}
-    >
+    <div className={`bg-white rounded-2xl shadow-card border border-surface-200 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${!associado.ativo ? "opacity-60" : ""}`}>
       <div className="flex-1 min-w-0">
         <div className="flex flex-wrap items-center gap-2 mb-1">
-          <span className="font-semibold text-gray-800 text-base">
-            {associado.nome}
-          </span>
-          {associado.primeiro_acesso && (
-            <span className="badge-amber">Aguardando 1º acesso</span>
-          )}
+          <span className="font-semibold text-gray-800 text-base">{associado.nome}</span>
+          {associado.primeiro_acesso && <span className="badge-amber">Aguardando 1º acesso</span>}
           {!associado.ativo && (
-            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
-              Inativo
-            </span>
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Inativo</span>
           )}
         </div>
         <div className="flex flex-wrap gap-4 text-sm text-gray-500">
@@ -89,10 +72,14 @@ function CardAssociado({
 
       <div className="flex items-center gap-2 flex-shrink-0">
         <button
-          title="Ver dependentes"
-          onClick={() => onVerDependentes(associado.id)}
-          className="w-9 h-9 rounded-lg flex items-center justify-center text-white transition-colors hover:opacity-90"
-          style={{ backgroundColor: "#16a34a" }}
+          title={semDependentes ? "Este associado não possui dependentes" : `Ver dependentes (${associado.qtd_dependentes})`}
+          onClick={() => (semDependentes ? undefined : onVerDependentes(associado.id))}
+          disabled={semDependentes}
+          aria-disabled={semDependentes}
+          className={`w-9 h-9 rounded-lg flex items-center justify-center text-white transition-colors ${
+            semDependentes ? "bg-gray-300 cursor-not-allowed opacity-60" : "hover:opacity-90"
+          }`}
+          style={semDependentes ? undefined : { backgroundColor: "#16a34a" }}
         >
           <Users size={16} />
         </button>
@@ -129,9 +116,7 @@ function CardAssociado({
       {confirmando?.id === associado.id && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
           <div className="bg-white rounded-2xl shadow-modal p-8 max-w-sm w-full mx-4 text-center">
-            <div
-              className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 ${confirmando.tipo === "inativar" ? "bg-red-100" : "bg-green-100"}`}
-            >
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 ${confirmando.tipo === "inativar" ? "bg-red-100" : "bg-green-100"}`}>
               {confirmando.tipo === "senha" ? (
                 <KeyRound size={22} className="text-green-700" />
               ) : confirmando.tipo === "inativar" ? (
@@ -141,60 +126,29 @@ function CardAssociado({
               )}
             </div>
             <h2 className="font-display text-lg font-bold text-gray-800 mb-2">
-              {confirmando.tipo === "senha"
-                ? "Redefinir senha?"
-                : confirmando.tipo === "inativar"
-                  ? "Inativar associado?"
-                  : "Reativar associado?"}
+              {confirmando.tipo === "senha" ? "Redefinir senha?" :
+               confirmando.tipo === "inativar" ? "Inativar associado?" : "Reativar associado?"}
             </h2>
             <p className="text-gray-500 text-sm mb-6">
               {confirmando.tipo === "senha" ? (
-                <>
-                  A senha de <strong>{associado.nome.split(" ")[0]}</strong>{" "}
-                  será redefinida para o CPF e será solicitada nova senha no
-                  próximo acesso.
-                </>
+                <>A senha de <strong>{associado.nome.split(" ")[0]}</strong> será redefinida para o CPF e será solicitada nova senha no próximo acesso.</>
               ) : confirmando.tipo === "inativar" ? (
-                <>
-                  <strong>{associado.nome.split(" ")[0]}</strong> não poderá se
-                  inscrever em novos eventos, mas mantém acesso às suas
-                  inscrições existentes.
-                </>
+                <><strong>{associado.nome.split(" ")[0]}</strong> não poderá se inscrever em novos eventos, mas mantém acesso às suas inscrições existentes.</>
               ) : (
-                <>
-                  <strong>{associado.nome.split(" ")[0]}</strong> voltará a ter
-                  acesso completo ao sistema.
-                </>
+                <><strong>{associado.nome.split(" ")[0]}</strong> voltará a ter acesso completo ao sistema.</>
               )}
             </p>
             <div className="flex gap-3">
-              <button
-                onClick={onCancelarConfirmacao}
-                disabled={processando}
-                className="btn-secondary flex-1"
-              >
-                Cancelar
-              </button>
+              <button onClick={onCancelarConfirmacao} disabled={processando} className="btn-secondary flex-1">Cancelar</button>
               <button
                 disabled={processando}
-                onClick={() =>
-                  confirmando.tipo === "senha"
-                    ? onRedefinirSenha(associado)
-                    : onAtivarInativar(associado)
-                }
+                onClick={() => confirmando.tipo === "senha" ? onRedefinirSenha(associado) : onAtivarInativar(associado)}
                 className="flex-1 py-2.5 rounded-xl font-semibold text-white text-sm transition-colors"
-                style={{
-                  backgroundColor:
-                    confirmando.tipo === "inativar" ? "#ef4444" : "#16a34a",
-                }}
+                style={{ backgroundColor: confirmando.tipo === "inativar" ? "#ef4444" : "#16a34a" }}
               >
-                {processando
-                  ? "Aguarde..."
-                  : confirmando.tipo === "senha"
-                    ? "Redefinir"
-                    : confirmando.tipo === "inativar"
-                      ? "Inativar"
-                      : "Reativar"}
+                {processando ? "Aguarde..." :
+                 confirmando.tipo === "senha" ? "Redefinir" :
+                 confirmando.tipo === "inativar" ? "Inativar" : "Reativar"}
               </button>
             </div>
           </div>
@@ -208,7 +162,7 @@ function CardAssociado({
 
 export default function AdminAssociados() {
   const navigate = useNavigate();
-  const [associados, setAssociados] = useState<Associado[]>([]);
+  const [associados, setAssociados] = useState<AssociadoComContagem[]>([]);
   const [admins, setAdmins] = useState<AdminInfo[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
@@ -219,17 +173,10 @@ export default function AdminAssociados() {
   const [processando, setProcessando] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [resultadoImport,] = useState<{
-    criados: number;
-    atualizados: number;
-    inativados: number;
-    erros: unknown[];
+    criados: number; atualizados: number; inativados: number; erros: unknown[];
   } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  // ─── Busca ────────────────────────────────────────────────────────────────────
-  // As duas chamadas são DESACOPLADAS: a lista de associados é o essencial e
-  // controla o estado de loading. A lista de admins é secundária — se falhar
-  // (ex: 400), não trava a tela; apenas os admins não aparecem na seção própria.
   useEffect(() => {
     let mounted = true;
 
@@ -237,11 +184,11 @@ export default function AdminAssociados() {
       setCarregando(true);
       setErro("");
 
-      // 1. ESSENCIAL: lista de associados
+      // 1. ESSENCIAL: associados + contagem de dependentes em UMA query (embed PostgREST)
       try {
         const { data, error } = await supabase
           .from("associados")
-          .select("*")
+          .select("*, dependentes(count)")
           .order("nome");
 
         if (!mounted) return;
@@ -256,7 +203,17 @@ export default function AdminAssociados() {
           return;
         }
 
-        setAssociados((data as Associado[]) ?? []);
+        // Normaliza a contagem: [{ count: N }]
+        type LinhaComEmbed = Associado & { dependentes?: { count: number }[] };
+        const lista: AssociadoComContagem[] = ((data ?? []) as LinhaComEmbed[]).map((a) => {
+          const { dependentes, ...resto } = a;
+          return {
+            ...(resto as Associado),
+            qtd_dependentes: dependentes?.[0]?.count ?? 0,
+          };
+        });
+
+        setAssociados(lista);
       } catch {
         if (!mounted) return;
         setErro("Erro de conexão. Verifique sua internet.");
@@ -264,38 +221,27 @@ export default function AdminAssociados() {
         return;
       }
 
-      // Lista principal OK → libera a tela imediatamente
       if (mounted) setCarregando(false);
 
-      // 2. SECUNDÁRIO: lista de admins (não bloqueia a tela)
+      // 2. SECUNDÁRIO: lista de admins
       try {
-        const { data: adminsData, error: adminsError } =
-          await supabase.rpc("listar_admins");
+        const { data: adminsData, error: adminsError } = await supabase.rpc("listar_admins");
         if (!mounted) return;
-        if (!adminsError && adminsData) {
-          setAdmins(adminsData as AdminInfo[]);
-        }
-      } catch {
-        /* admins é opcional — ignora falha */
-      }
+        if (!adminsError && adminsData) setAdmins(adminsData as AdminInfo[]);
+      } catch { /* admins é opcional */ }
     };
 
     buscar();
-
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [reloadKey]);
 
-  // ─── Filtros ──────────────────────────────────────────────────────────────────
   const adminIds = new Set(admins.map((a) => a.user_id));
 
   const filtrados = associados.filter((a) => {
     const termo = busca.toLowerCase();
     return (
       !adminIds.has(a.user_id ?? "") &&
-      (a.nome.toLowerCase().includes(termo) ||
-        a.cpf.includes(termo.replace(/\D/g, "")))
+      (a.nome.toLowerCase().includes(termo) || a.cpf.includes(termo.replace(/\D/g, "")))
     );
   });
 
@@ -307,27 +253,14 @@ export default function AdminAssociados() {
     setTimeout(() => setFeedback(""), 3000);
   }
 
-  // ─── Ações ───────────────────────────────────────────────────────────────────
   async function handleAtivarInativar(associado: Associado) {
     setProcessando(true);
-    const { error } = await supabase
-      .from("associados")
-      .update({ ativo: !associado.ativo })
-      .eq("id", associado.id);
-
+    const { error } = await supabase.from("associados").update({ ativo: !associado.ativo }).eq("id", associado.id);
     if (error) {
       mostrarFeedback("Erro ao atualizar. Tente novamente.");
     } else {
-      setAssociados((prev) =>
-        prev.map((a) =>
-          a.id === associado.id ? { ...a, ativo: !a.ativo } : a,
-        ),
-      );
-      mostrarFeedback(
-        associado.ativo
-          ? `${associado.nome.split(" ")[0]} inativado.`
-          : `${associado.nome.split(" ")[0]} reativado.`,
-      );
+      setAssociados((prev) => prev.map((a) => a.id === associado.id ? { ...a, ativo: !a.ativo } : a));
+      mostrarFeedback(associado.ativo ? `${associado.nome.split(" ")[0]} inativado.` : `${associado.nome.split(" ")[0]} reativado.`);
     }
     setProcessando(false);
     setConfirmando(null);
@@ -335,27 +268,17 @@ export default function AdminAssociados() {
 
   async function handleRedefinirSenha(associado: Associado) {
     setProcessando(true);
-    const { data, error } = await supabase.rpc("admin_redefinir_senha", {
-      p_cpf: associado.cpf,
-    });
-
+    const { data, error } = await supabase.rpc("admin_redefinir_senha", { p_cpf: associado.cpf });
     if (error || data !== "Senha redefinida com sucesso") {
       mostrarFeedback("Erro ao redefinir senha.");
     } else {
-      setAssociados((prev) =>
-        prev.map((a) =>
-          a.id === associado.id ? { ...a, primeiro_acesso: true } : a,
-        ),
-      );
-      mostrarFeedback(
-        `Senha de ${associado.nome.split(" ")[0]} redefinida para o CPF.`,
-      );
+      setAssociados((prev) => prev.map((a) => a.id === associado.id ? { ...a, primeiro_acesso: true } : a));
+      mostrarFeedback(`Senha de ${associado.nome.split(" ")[0]} redefinida para o CPF.`);
     }
     setProcessando(false);
     setConfirmando(null);
   }
 
-  // ─── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
       <Header />
@@ -368,60 +291,36 @@ export default function AdminAssociados() {
       )}
 
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 pt-28 pb-12">
-        <button
-          onClick={() => navigate("/admin")}
-          className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition-colors mb-6"
-        >
-          <ArrowLeft size={16} />
-          Voltar para eventos
+        <button onClick={() => navigate("/admin")} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition-colors mb-6">
+          <ArrowLeft size={16} /> Voltar para eventos
         </button>
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <h1 className="font-display text-2xl font-bold text-gray-800">
-            Associados
-          </h1>
+          <h1 className="font-display text-2xl font-bold text-gray-800">Associados</h1>
           <button
             onClick={() => navigate("/admin/importar")}
             className="flex items-center gap-2 text-sm font-semibold text-white px-4 py-2.5 rounded-xl transition-colors cursor-pointer hover:opacity-90"
             style={{ backgroundColor: "#16a34a" }}
           >
-            <Upload size={16} />
-            Importar base
+            <Upload size={16} /> Importar base
           </button>
         </div>
 
         {resultadoImport && (
           <div className="bg-green-50 border border-green-200 rounded-xl px-5 py-4 mb-6 text-sm text-green-800">
-            <p className="font-semibold mb-1">
-              Importação realizada com sucesso
-            </p>
-            <p>
-              {resultadoImport.criados} criados · {resultadoImport.atualizados}{" "}
-              atualizados · {resultadoImport.inativados} inativados ·{" "}
-              {resultadoImport.erros?.length ?? 0} erros
-            </p>
+            <p className="font-semibold mb-1">Importação realizada com sucesso</p>
+            <p>{resultadoImport.criados} criados · {resultadoImport.atualizados} atualizados · {resultadoImport.inativados} inativados · {resultadoImport.erros?.length ?? 0} erros</p>
           </div>
         )}
 
         <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-3 mb-6 text-xs text-blue-700">
-          <strong>Formato CSV esperado:</strong> nr_inscricao, nome, cpf,
-          celular, empresa, data_nascimento
-          <br />
-          Associados ausentes na nova base serão inativados automaticamente.
+          <strong>Formato CSV esperado:</strong> nr_inscricao, nome, cpf, celular, empresa, data_nascimento
+          <br />Associados ausentes na nova base serão inativados automaticamente.
         </div>
 
         <div className="relative w-full sm:w-72 mb-8">
-          <Search
-            size={16}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-          />
-          <input
-            type="text"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar por nome ou CPF..."
-            className="field pl-9 w-full"
-          />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input type="text" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome ou CPF..." className="field pl-9 w-full" />
         </div>
 
         {carregando && (
@@ -436,29 +335,16 @@ export default function AdminAssociados() {
               <AlertCircle size={22} className="text-red-600" />
             </div>
             <p className="text-gray-600 text-sm">{erro}</p>
-            <button
-              onClick={() => setReloadKey((k) => k + 1)}
-              className="btn-primary"
-              style={{ backgroundColor: "#16a34a" }}
-            >
-              Tentar novamente
-            </button>
+            <button onClick={() => setReloadKey((k) => k + 1)} className="btn-primary" style={{ backgroundColor: "#16a34a" }}>Tentar novamente</button>
           </div>
         )}
 
         {!carregando && !erro && (
           <div className="flex flex-col gap-3">
-            {ativos.length === 0 && (
-              <p className="text-center text-gray-500 py-12">
-                Nenhum associado encontrado.
-              </p>
-            )}
+            {ativos.length === 0 && <p className="text-center text-gray-500 py-12">Nenhum associado encontrado.</p>}
             {ativos.map((a) => (
               <CardAssociado
-                key={a.id}
-                associado={a}
-                confirmando={confirmando}
-                processando={processando}
+                key={a.id} associado={a} confirmando={confirmando} processando={processando}
                 onVerDependentes={(id) => navigate(`/admin/dependentes/${id}`)}
                 onConfirmar={(id, tipo) => setConfirmando({ id, tipo })}
                 onCancelarConfirmacao={() => setConfirmando(null)}
@@ -471,28 +357,16 @@ export default function AdminAssociados() {
 
         {!carregando && !erro && inativos.length > 0 && (
           <div className="mt-10">
-            <button
-              onClick={() => setMostrarInativos(!mostrarInativos)}
-              className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors mb-4"
-            >
-              {mostrarInativos ? (
-                <ChevronUp size={16} />
-              ) : (
-                <ChevronDown size={16} />
-              )}
+            <button onClick={() => setMostrarInativos(!mostrarInativos)} className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors mb-4">
+              {mostrarInativos ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
               Associados inativos ({inativos.length})
             </button>
             {mostrarInativos && (
               <div className="flex flex-col gap-3">
                 {inativos.map((a) => (
                   <CardAssociado
-                    key={a.id}
-                    associado={a}
-                    confirmando={confirmando}
-                    processando={processando}
-                    onVerDependentes={(id) =>
-                      navigate(`/admin/dependentes/${id}`)
-                    }
+                    key={a.id} associado={a} confirmando={confirmando} processando={processando}
+                    onVerDependentes={(id) => navigate(`/admin/dependentes/${id}`)}
                     onConfirmar={(id, tipo) => setConfirmando({ id, tipo })}
                     onCancelarConfirmacao={() => setConfirmando(null)}
                     onAtivarInativar={handleAtivarInativar}
@@ -506,32 +380,17 @@ export default function AdminAssociados() {
 
         {!carregando && !erro && admins.length > 0 && (
           <div className="mt-10">
-            <button
-              onClick={() => setMostrarAdmins(!mostrarAdmins)}
-              className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors mb-4"
-            >
-              {mostrarAdmins ? (
-                <ChevronUp size={16} />
-              ) : (
-                <ChevronDown size={16} />
-              )}
-              <ShieldCheck size={16} />
-              Administradores ({admins.length})
+            <button onClick={() => setMostrarAdmins(!mostrarAdmins)} className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors mb-4">
+              {mostrarAdmins ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              <ShieldCheck size={16} /> Administradores ({admins.length})
             </button>
             {mostrarAdmins && (
               <div className="flex flex-col gap-3">
                 {admins.map((admin) => (
-                  <div
-                    key={admin.user_id}
-                    className="bg-white rounded-2xl shadow-card border border-surface-200 px-6 py-4"
-                  >
+                  <div key={admin.user_id} className="bg-white rounded-2xl shadow-card border border-surface-200 px-6 py-4">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold text-gray-800">
-                        {admin.nome}
-                      </span>
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-                        Admin
-                      </span>
+                      <span className="font-semibold text-gray-800">{admin.nome}</span>
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">Admin</span>
                     </div>
                     <div className="flex flex-wrap gap-4 text-sm text-gray-500">
                       <span>CPF: {formatarCpf(admin.cpf)}</span>
