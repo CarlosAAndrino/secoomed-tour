@@ -1,12 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Search, UserCheck, UserX, KeyRound, ChevronDown, ChevronUp,
+  Search, UserCheck, UserX, KeyRound,
   AlertCircle, ArrowLeft, CheckCircle, Upload, Users, ShieldCheck,
+  ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { supabase } from "@/lib/supabase";
 import type { Associado } from "@/types/database";
+
+const POR_PAGINA = 20;
+const DEBOUNCE_MS = 300;
 
 interface AdminInfo {
   user_id: string;
@@ -15,7 +19,6 @@ interface AdminInfo {
   cpf: string;
 }
 
-// Estende Associado com a contagem trazida pelo embed PostgREST.
 interface AssociadoComContagem extends Associado {
   qtd_dependentes: number;
 }
@@ -31,7 +34,127 @@ function formatarCpf(cpf: string): string {
   return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
 }
 
-// ─── CardAssociado ────────────────────────────────────────────────────────────
+function useDebounce<T>(valor: T, atraso: number): T {
+  const [debounced, setDebounced] = useState(valor);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(valor), atraso);
+    return () => clearTimeout(id);
+  }, [valor, atraso]);
+  return debounced;
+}
+
+// ─── Hook: uma página de associados (server-side) ────────────────────────────
+
+interface PaginaResult {
+  itens: AssociadoComContagem[];
+  total: number;
+  carregando: boolean;
+  erro: string;
+}
+
+function usePaginaAssociados(
+  ativo: boolean,
+  pagina: number,
+  termo: string,
+  adminUserIds: string[],
+  reloadKey: number,
+): PaginaResult {
+  const [itens, setItens] = useState<AssociadoComContagem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+
+    const buscar = async () => {
+      setCarregando(true);
+      setErro("");
+
+      const inicio = (pagina - 1) * POR_PAGINA;
+      const fim = inicio + POR_PAGINA - 1;
+      const dig = termo.replace(/\D/g, "");
+
+      let query = supabase
+        .from("associados")
+        .select("*, dependentes(count)", { count: "exact" })
+        .eq("ativo", ativo);
+
+      if (adminUserIds.length > 0) {
+        query = query.not("user_id", "in", `(${adminUserIds.join(",")})`);
+      }
+      if (termo.length > 0) {
+        const cond = [`nome.ilike.%${termo}%`];
+        if (dig) cond.push(`cpf.ilike.%${dig}%`);
+        query = query.or(cond.join(","));
+      }
+
+      const { data, error, count } = await query
+        .order("nome", { ascending: true })
+        .range(inicio, fim);
+
+      if (!mounted) return;
+
+      if (error) {
+        if (error.code === "PGRST301" || error.message?.includes("JWT")) {
+          window.location.href = "/entrar";
+          return;
+        }
+        setErro("Não foi possível carregar os associados.");
+        setCarregando(false);
+        return;
+      }
+
+      type Linha = Associado & { dependentes?: { count: number }[] };
+      setItens(
+        ((data ?? []) as Linha[]).map((a) => {
+          const { dependentes, ...resto } = a;
+          return { ...(resto as Associado), qtd_dependentes: dependentes?.[0]?.count ?? 0 };
+        }),
+      );
+      setTotal(count ?? 0);
+      setCarregando(false);
+    };
+
+    buscar();
+    return () => { mounted = false; };
+  }, [ativo, pagina, termo, adminUserIds, reloadKey]);
+
+  return { itens, total, carregando, erro };
+}
+
+// ─── Paginador ────────────────────────────────────────────────────────────────
+
+interface PaginadorProps {
+  pagina: number;
+  totalPaginas: number;
+  onMudar: (p: number) => void;
+}
+
+function Paginador({ pagina, totalPaginas, onMudar }: PaginadorProps) {
+  if (totalPaginas <= 1) return null;
+  return (
+    <div className="flex items-center justify-center gap-3 mt-4">
+      <button
+        onClick={() => onMudar(Math.max(1, pagina - 1))}
+        disabled={pagina === 1}
+        className="flex items-center gap-1 text-sm font-medium text-gray-700 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <ChevronLeft size={14} /> Anterior
+      </button>
+      <span className="text-sm text-gray-600 font-medium">{pagina} / {totalPaginas}</span>
+      <button
+        onClick={() => onMudar(Math.min(totalPaginas, pagina + 1))}
+        disabled={pagina >= totalPaginas}
+        className="flex items-center gap-1 text-sm font-medium text-gray-700 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        Próxima <ChevronRight size={14} />
+      </button>
+    </div>
+  );
+}
+
+// ─── CardAssociado ───────────────────────────────────────────────────────────
 
 interface CardAssociadoProps {
   associado: AssociadoComContagem;
@@ -49,7 +172,6 @@ function CardAssociado({
   onVerDependentes, onConfirmar, onCancelarConfirmacao,
   onAtivarInativar, onRedefinirSenha,
 }: CardAssociadoProps) {
-  // Botão desabilitado quando associado não possui dependentes
   const semDependentes = associado.qtd_dependentes === 0;
 
   return (
@@ -117,13 +239,9 @@ function CardAssociado({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
           <div className="bg-white rounded-2xl shadow-modal p-8 max-w-sm w-full mx-4 text-center">
             <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 ${confirmando.tipo === "inativar" ? "bg-red-100" : "bg-green-100"}`}>
-              {confirmando.tipo === "senha" ? (
-                <KeyRound size={22} className="text-green-700" />
-              ) : confirmando.tipo === "inativar" ? (
-                <UserX size={22} className="text-red-600" />
-              ) : (
-                <UserCheck size={22} className="text-green-700" />
-              )}
+              {confirmando.tipo === "senha" ? <KeyRound size={22} className="text-green-700" />
+                : confirmando.tipo === "inativar" ? <UserX size={22} className="text-red-600" />
+                : <UserCheck size={22} className="text-green-700" />}
             </div>
             <h2 className="font-display text-lg font-bold text-gray-800 mb-2">
               {confirmando.tipo === "senha" ? "Redefinir senha?" :
@@ -158,95 +276,44 @@ function CardAssociado({
   );
 }
 
-// ─── AdminAssociados ──────────────────────────────────────────────────────────
+// ─── AdminAssociados ─────────────────────────────────────────────────────────
 
 export default function AdminAssociados() {
   const navigate = useNavigate();
-  const [associados, setAssociados] = useState<AssociadoComContagem[]>([]);
+
   const [admins, setAdmins] = useState<AdminInfo[]>([]);
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState("");
   const [busca, setBusca] = useState("");
+  const [paginaAtivos, setPaginaAtivos] = useState(1);
+  const [paginaInativos, setPaginaInativos] = useState(1);
   const [mostrarInativos, setMostrarInativos] = useState(false);
   const [mostrarAdmins, setMostrarAdmins] = useState(false);
   const [confirmando, setConfirmando] = useState<ConfirmacaoState | null>(null);
   const [processando, setProcessando] = useState(false);
   const [feedback, setFeedback] = useState("");
-  const [resultadoImport,] = useState<{
-    criados: number; atualizados: number; inativados: number; erros: unknown[];
-  } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+
+  const buscaDebounced = useDebounce(busca.trim(), DEBOUNCE_MS);
+
+  const adminUserIds = useMemo(
+    () => admins.map((a) => a.user_id).filter(Boolean),
+    [admins],
+  );
 
   useEffect(() => {
     let mounted = true;
-
-    const buscar = async () => {
-      setCarregando(true);
-      setErro("");
-
-      // 1. ESSENCIAL: associados + contagem de dependentes em UMA query (embed PostgREST)
-      try {
-        const { data, error } = await supabase
-          .from("associados")
-          .select("*, dependentes(count)")
-          .order("nome");
-
-        if (!mounted) return;
-
-        if (error) {
-          if (error.code === "PGRST301" || error.message?.includes("JWT")) {
-            window.location.href = "/entrar";
-            return;
-          }
-          setErro("Não foi possível carregar os associados.");
-          setCarregando(false);
-          return;
-        }
-
-        // Normaliza a contagem: [{ count: N }]
-        type LinhaComEmbed = Associado & { dependentes?: { count: number }[] };
-        const lista: AssociadoComContagem[] = ((data ?? []) as LinhaComEmbed[]).map((a) => {
-          const { dependentes, ...resto } = a;
-          return {
-            ...(resto as Associado),
-            qtd_dependentes: dependentes?.[0]?.count ?? 0,
-          };
-        });
-
-        setAssociados(lista);
-      } catch {
-        if (!mounted) return;
-        setErro("Erro de conexão. Verifique sua internet.");
-        setCarregando(false);
-        return;
-      }
-
-      if (mounted) setCarregando(false);
-
-      // 2. SECUNDÁRIO: lista de admins
-      try {
-        const { data: adminsData, error: adminsError } = await supabase.rpc("listar_admins");
-        if (!mounted) return;
-        if (!adminsError && adminsData) setAdmins(adminsData as AdminInfo[]);
-      } catch { /* admins é opcional */ }
-    };
-
-    buscar();
+    supabase.rpc("listar_admins").then(({ data, error }) => {
+      if (!mounted) return;
+      if (!error && data) setAdmins(data as AdminInfo[]);
+    });
     return () => { mounted = false; };
   }, [reloadKey]);
 
-  const adminIds = new Set(admins.map((a) => a.user_id));
+  // Paginações independentes por seção (server-side)
+  const ativos = usePaginaAssociados(true, paginaAtivos, buscaDebounced, adminUserIds, reloadKey);
+  const inativos = usePaginaAssociados(false, paginaInativos, buscaDebounced, adminUserIds, reloadKey);
 
-  const filtrados = associados.filter((a) => {
-    const termo = busca.toLowerCase();
-    return (
-      !adminIds.has(a.user_id ?? "") &&
-      (a.nome.toLowerCase().includes(termo) || a.cpf.includes(termo.replace(/\D/g, "")))
-    );
-  });
-
-  const ativos = filtrados.filter((a) => a.ativo);
-  const inativos = filtrados.filter((a) => !a.ativo);
+  const totalPagAtivos = Math.max(1, Math.ceil(ativos.total / POR_PAGINA));
+  const totalPagInativos = Math.max(1, Math.ceil(inativos.total / POR_PAGINA));
 
   function mostrarFeedback(msg: string) {
     setFeedback(msg);
@@ -255,12 +322,18 @@ export default function AdminAssociados() {
 
   async function handleAtivarInativar(associado: Associado) {
     setProcessando(true);
-    const { error } = await supabase.from("associados").update({ ativo: !associado.ativo }).eq("id", associado.id);
+    const { error } = await supabase
+      .from("associados")
+      .update({ ativo: !associado.ativo })
+      .eq("id", associado.id);
     if (error) {
       mostrarFeedback("Erro ao atualizar. Tente novamente.");
     } else {
-      setAssociados((prev) => prev.map((a) => a.id === associado.id ? { ...a, ativo: !a.ativo } : a));
-      mostrarFeedback(associado.ativo ? `${associado.nome.split(" ")[0]} inativado.` : `${associado.nome.split(" ")[0]} reativado.`);
+      // Item muda de seção → recarrega ambas
+      setReloadKey((k) => k + 1);
+      mostrarFeedback(associado.ativo
+        ? `${associado.nome.split(" ")[0]} inativado.`
+        : `${associado.nome.split(" ")[0]} reativado.`);
     }
     setProcessando(false);
     setConfirmando(null);
@@ -272,12 +345,21 @@ export default function AdminAssociados() {
     if (error || data !== "Senha redefinida com sucesso") {
       mostrarFeedback("Erro ao redefinir senha.");
     } else {
-      setAssociados((prev) => prev.map((a) => a.id === associado.id ? { ...a, primeiro_acesso: true } : a));
+      setReloadKey((k) => k + 1);
       mostrarFeedback(`Senha de ${associado.nome.split(" ")[0]} redefinida para o CPF.`);
     }
     setProcessando(false);
     setConfirmando(null);
   }
+
+  const cardProps = {
+    confirmando, processando,
+    onVerDependentes: (id: string) => navigate(`/admin/dependentes/${id}`),
+    onConfirmar: (id: string, tipo: TipoConfirmacao) => setConfirmando({ id, tipo }),
+    onCancelarConfirmacao: () => setConfirmando(null),
+    onAtivarInativar: handleAtivarInativar,
+    onRedefinirSenha: handleRedefinirSenha,
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
@@ -306,81 +388,89 @@ export default function AdminAssociados() {
           </button>
         </div>
 
-        {resultadoImport && (
-          <div className="bg-green-50 border border-green-200 rounded-xl px-5 py-4 mb-6 text-sm text-green-800">
-            <p className="font-semibold mb-1">Importação realizada com sucesso</p>
-            <p>{resultadoImport.criados} criados · {resultadoImport.atualizados} atualizados · {resultadoImport.inativados} inativados · {resultadoImport.erros?.length ?? 0} erros</p>
-          </div>
-        )}
-
         <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-3 mb-6 text-xs text-blue-700">
           <strong>Formato CSV esperado:</strong> nr_inscricao, nome, cpf, celular, empresa, data_nascimento
           <br />Associados ausentes na nova base serão inativados automaticamente.
         </div>
 
-        <div className="relative w-full sm:w-72 mb-8">
+        <div className="relative w-full sm:w-96 mb-8">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input type="text" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome ou CPF..." className="field pl-9 w-full" />
+          <input
+            type="text"
+            value={busca}
+            onChange={(e) => { setBusca(e.target.value); setPaginaAtivos(1); setPaginaInativos(1); }}
+            placeholder="Buscar por nome ou CPF..."
+            className="field pl-9 w-full"
+          />
         </div>
 
-        {carregando && (
-          <div className="flex justify-center py-20">
+        {/* ─── Associados Ativos ─── */}
+        <h2 className="font-display text-lg font-bold text-gray-800 mb-3">Associados Ativos</h2>
+
+        {ativos.carregando && (
+          <div className="flex justify-center py-14">
             <div className="w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full animate-spin" />
           </div>
         )}
 
-        {!carregando && erro && (
-          <div className="flex flex-col items-center gap-4 py-16">
+        {!ativos.carregando && ativos.erro && (
+          <div className="flex flex-col items-center gap-4 py-12">
             <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
               <AlertCircle size={22} className="text-red-600" />
             </div>
-            <p className="text-gray-600 text-sm">{erro}</p>
-            <button onClick={() => setReloadKey((k) => k + 1)} className="btn-primary" style={{ backgroundColor: "#16a34a" }}>Tentar novamente</button>
+            <p className="text-gray-600 text-sm">{ativos.erro}</p>
+            <button onClick={() => setReloadKey((k) => k + 1)} className="btn-primary" style={{ backgroundColor: "#16a34a" }}>
+              Tentar novamente
+            </button>
           </div>
         )}
 
-        {!carregando && !erro && (
-          <div className="flex flex-col gap-3">
-            {ativos.length === 0 && <p className="text-center text-gray-500 py-12">Nenhum associado encontrado.</p>}
-            {ativos.map((a) => (
-              <CardAssociado
-                key={a.id} associado={a} confirmando={confirmando} processando={processando}
-                onVerDependentes={(id) => navigate(`/admin/dependentes/${id}`)}
-                onConfirmar={(id, tipo) => setConfirmando({ id, tipo })}
-                onCancelarConfirmacao={() => setConfirmando(null)}
-                onAtivarInativar={handleAtivarInativar}
-                onRedefinirSenha={handleRedefinirSenha}
-              />
-            ))}
-          </div>
+        {!ativos.carregando && !ativos.erro && (
+          <>
+            <p className="text-sm text-gray-500 mb-3">
+              {ativos.total === 0
+                ? "Nenhum associado ativo encontrado."
+                : `${ativos.total} associado(s) ativo(s)`}
+            </p>
+            <div className="flex flex-col gap-3">
+              {ativos.itens.map((a) => (
+                <CardAssociado key={a.id} associado={a} {...cardProps} />
+              ))}
+            </div>
+            <Paginador pagina={paginaAtivos} totalPaginas={totalPagAtivos} onMudar={setPaginaAtivos} />
+          </>
         )}
 
-        {!carregando && !erro && inativos.length > 0 && (
+        {/* ─── Associados Inativos ─── */}
+        {!inativos.carregando && inativos.total > 0 && (
           <div className="mt-10">
-            <button onClick={() => setMostrarInativos(!mostrarInativos)} className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors mb-4">
-              {mostrarInativos ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              Associados inativos ({inativos.length})
+            <button
+              onClick={() => setMostrarInativos(!mostrarInativos)}
+              className="flex items-center gap-2 font-display text-lg font-bold text-gray-800 mb-3"
+            >
+              {mostrarInativos ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+              Associados Inativos ({inativos.total})
             </button>
             {mostrarInativos && (
-              <div className="flex flex-col gap-3">
-                {inativos.map((a) => (
-                  <CardAssociado
-                    key={a.id} associado={a} confirmando={confirmando} processando={processando}
-                    onVerDependentes={(id) => navigate(`/admin/dependentes/${id}`)}
-                    onConfirmar={(id, tipo) => setConfirmando({ id, tipo })}
-                    onCancelarConfirmacao={() => setConfirmando(null)}
-                    onAtivarInativar={handleAtivarInativar}
-                    onRedefinirSenha={handleRedefinirSenha}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="flex flex-col gap-3">
+                  {inativos.itens.map((a) => (
+                    <CardAssociado key={a.id} associado={a} {...cardProps} />
+                  ))}
+                </div>
+                <Paginador pagina={paginaInativos} totalPaginas={totalPagInativos} onMudar={setPaginaInativos} />
+              </>
             )}
           </div>
         )}
 
-        {!carregando && !erro && admins.length > 0 && (
+        {/* ─── Administradores ─── */}
+        {admins.length > 0 && (
           <div className="mt-10">
-            <button onClick={() => setMostrarAdmins(!mostrarAdmins)} className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors mb-4">
+            <button
+              onClick={() => setMostrarAdmins(!mostrarAdmins)}
+              className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors mb-4"
+            >
               {mostrarAdmins ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
               <ShieldCheck size={16} /> Administradores ({admins.length})
             </button>

@@ -103,6 +103,9 @@ export interface InscricaoEvento {
   participante_cpf: string | null;
   dependente_id: string | null;
   valor_inscricao: number | null;
+  associado_email: string | null;
+  participante_data_nascimento: string | null;
+  dependente_nr_sequencia: number | null;
 }
 
 export interface AdminDashboard {

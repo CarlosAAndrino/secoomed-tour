@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  Users, Pencil, Trash2, Plus, CalendarDays,
+  Users, Pencil, Trash2, Plus, CalendarDays, Bell,
   ChevronDown, ChevronUp, AlertCircle,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
+import ModalLembrete from "@/components/ui/ModalLembrete";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import type { EventoLista } from "@/types/database";
@@ -42,9 +43,10 @@ interface CardEventoProps {
   onAbrirConfirmacao: (id: string) => void;
   onFecharConfirmacao: () => void;
   onExcluir: (id: string) => void;
+  onLembrete: (evento: EventoLista) => void;
 }
 
-function CardEvento({ evento, confirmandoId, onAbrirConfirmacao, onFecharConfirmacao, onExcluir }: CardEventoProps) {
+function CardEvento({ evento, confirmandoId, onAbrirConfirmacao, onFecharConfirmacao, onExcluir, onLembrete }: CardEventoProps) {
   const realizado = evento.status_evento === "realizado";
   return (
     <>
@@ -66,6 +68,9 @@ function CardEvento({ evento, confirmandoId, onAbrirConfirmacao, onFecharConfirm
             <div title="Evento já realizado" className="w-9 h-9 rounded-lg flex items-center justify-center text-white cursor-not-allowed opacity-40" style={{ backgroundColor: "#16a34a" }}><Pencil size={16} /></div>
           ) : (
             <Link to={`/admin/editar-evento/${evento.id}`} title="Editar evento" className="w-9 h-9 rounded-lg flex items-center justify-center text-white transition-colors hover:opacity-90" style={{ backgroundColor: "#16a34a" }}><Pencil size={16} /></Link>
+          )}
+          {!realizado && (
+            <button title="Enviar lembrete" onClick={() => onLembrete(evento)} className="w-9 h-9 rounded-lg flex items-center justify-center text-white transition-colors hover:opacity-90 bg-amber-500 hover:bg-amber-600"><Bell size={16} /></button>
           )}
           <button title="Excluir evento" onClick={() => onAbrirConfirmacao(evento.id)} className="w-9 h-9 rounded-lg flex items-center justify-center text-white bg-red-500 hover:bg-red-600 transition-colors"><Trash2 size={16} /></button>
         </div>
@@ -94,6 +99,7 @@ export default function AdminEventos() {
   const [erro, setErro] = useState("");
   const [mostrarPassados, setMostrarPassados] = useState(false);
   const [confirmandoId, setConfirmandoId] = useState<string | null>(null);
+  const [eventoLembrete, setEventoLembrete] = useState<EventoLista | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -213,7 +219,7 @@ export default function AdminEventos() {
         {!carregando && !erro && (
           <div className="flex flex-col gap-3">
             {eventosFuturos.length === 0 && <p className="text-center text-gray-500 py-12">Nenhum evento cadastrado ainda.</p>}
-            {eventosFuturos.map((evento) => <CardEvento key={evento.id} evento={evento} confirmandoId={confirmandoId} onAbrirConfirmacao={setConfirmandoId} onFecharConfirmacao={() => setConfirmandoId(null)} onExcluir={handleExcluir} />)}
+            {eventosFuturos.map((evento) => <CardEvento key={evento.id} evento={evento} confirmandoId={confirmandoId} onAbrirConfirmacao={setConfirmandoId} onFecharConfirmacao={() => setConfirmandoId(null)} onExcluir={handleExcluir} onLembrete={setEventoLembrete} />)}
           </div>
         )}
         {!carregando && !erro && eventosPassados.length > 0 && (
@@ -221,10 +227,13 @@ export default function AdminEventos() {
             <button onClick={() => setMostrarPassados(!mostrarPassados)} className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors mb-4">
               {mostrarPassados ? <ChevronUp size={16} /> : <ChevronDown size={16} />} Eventos realizados ({eventosPassados.length})
             </button>
-            {mostrarPassados && <div className="flex flex-col gap-3">{eventosPassados.map((evento) => <CardEvento key={evento.id} evento={evento} confirmandoId={confirmandoId} onAbrirConfirmacao={setConfirmandoId} onFecharConfirmacao={() => setConfirmandoId(null)} onExcluir={handleExcluir} />)}</div>}
+            {mostrarPassados && <div className="flex flex-col gap-3">{eventosPassados.map((evento) => <CardEvento key={evento.id} evento={evento} confirmandoId={confirmandoId} onAbrirConfirmacao={setConfirmandoId} onFecharConfirmacao={() => setConfirmandoId(null)} onExcluir={handleExcluir} onLembrete={setEventoLembrete} />)}</div>}
           </div>
         )}
       </main>
+      {eventoLembrete && (
+        <ModalLembrete evento={eventoLembrete} onFechar={() => setEventoLembrete(null)} />
+      )}
     </div>
   );
 }

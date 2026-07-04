@@ -5,7 +5,9 @@ import {
   AlertCircle,
   CheckCircle,
   DollarSign,
+  FileSpreadsheet,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import Header from "@/components/layout/Header";
 import { supabase } from "@/lib/supabase";
 import type { InscricaoEvento, EventoLista } from "@/types/database";
@@ -22,6 +24,21 @@ function formatarMoeda(valor: number): string {
   return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+
+// Anti formula-injection: prefixa ' em valores iniciando com = + - @
+function esc(v: string | number | null | undefined): string | number {
+  if (v == null) return "";
+  if (typeof v === "number") return v;
+  return /^[=+\-@]/.test(v) ? `'${v}` : v;
+}
+function fmtCpfX(cpf: string | null): string {
+  if (!cpf) return "";
+  return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+}
+function fmtDataX(d: string | null): string {
+  if (!d) return "";
+  return format(new Date(d.length === 10 ? d + "T12:00:00" : d), "dd/MM/yyyy", { locale: ptBR });
+}
 function labelTipo(tipo: string): string {
   switch (tipo) {
     case "titular":
@@ -201,6 +218,24 @@ export default function AdminInscritos() {
   }
 
   const confirmados = inscritos.filter((i) => i.status === "confirmada");
+
+  // Grupos por titular (associado_id): titular > dependentes > convidados
+  const grupos = (() => {
+    const mapa = new Map<string, { titular: InscricaoEvento | null; subs: InscricaoEvento[]; nome: string }>();
+    for (const i of confirmados) {
+      let g = mapa.get(i.associado_id);
+      if (!g) { g = { titular: null, subs: [], nome: i.associado_nome }; mapa.set(i.associado_id, g); }
+      if (i.tipo_participante === "titular") g.titular = i;
+      else g.subs.push(i);
+    }
+    for (const g of mapa.values()) {
+      g.subs.sort((x, y) =>
+        x.tipo_participante === y.tipo_participante
+          ? x.participante_nome.localeCompare(y.participante_nome)
+          : x.tipo_participante === "dependente" ? -1 : 1);
+    }
+    return Array.from(mapa.values()).sort((a, b) => a.nome.localeCompare(b.nome));
+  })();
   const totalPagos = confirmados.filter((i) => i.pago).length;
   const valorTotal = confirmados.reduce(
     (acc, i) => acc + (i.valor_inscricao ?? 0),
@@ -209,6 +244,50 @@ export default function AdminInscritos() {
   const valorPago = confirmados
     .filter((i) => i.pago)
     .reduce((acc, i) => acc + (i.valor_inscricao ?? 0), 0);
+
+
+  function exportarXlsx() {
+    if (!evento || confirmados.length === 0) return;
+
+    const linhas = confirmados.map((i) => ({
+      "Evento": esc(evento.destino),
+      "Data do evento": fmtDataX(evento.data_evento),
+      "Data da inscricao": fmtDataX(i.inscrito_em),
+      "Status": i.status,
+      "Pago": i.pago ? "Sim" : "Nao",
+      "Valor (R$)": i.valor_inscricao ?? "",
+      "Tipo": labelTipo(i.tipo_participante),
+      "Participante": esc(i.participante_nome),
+      "CPF participante": fmtCpfX(i.participante_cpf),
+      "Titular (associado)": esc(i.associado_nome),
+      "Celular titular": esc(i.associado_celular),
+      "Email titular": esc(i.associado_email),
+    }));
+
+    const titulares = confirmados.filter((i) => i.tipo_participante === "titular").length;
+    const dependentes = confirmados.filter((i) => i.tipo_participante === "dependente").length;
+    const convidados = confirmados.filter((i) => i.tipo_participante === "convidado").length;
+    const pagos = confirmados.filter((i) => i.pago).length;
+
+    const resumo = [
+      { Item: "Evento", Valor: esc(evento.destino) },
+      { Item: "Data do evento", Valor: fmtDataX(evento.data_evento) },
+      { Item: "Total de inscricoes", Valor: confirmados.length },
+      { Item: "Titulares", Valor: titulares },
+      { Item: "Dependentes", Valor: dependentes },
+      { Item: "Convidados", Valor: convidados },
+      { Item: "Pagos", Valor: pagos },
+      { Item: "Nao pagos", Valor: confirmados.length - pagos },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), "Inscritos");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), "Resumo");
+
+    const slug = evento.destino.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
+    XLSX.writeFile(wb, `inscritos_${slug}_${format(new Date(), "yyyy-MM-dd")}.xlsx`);
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
@@ -239,6 +318,15 @@ export default function AdminInscritos() {
               {formatarData(evento.data_evento)} &mdash;{" "}
               {confirmados.length} inscrito(s)
             </p>
+          )}
+          {confirmados.length > 0 && (
+            <button
+              onClick={exportarXlsx}
+              className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-white px-4 py-2.5 rounded-xl transition-colors hover:opacity-90"
+              style={{ backgroundColor: "#16a34a" }}
+            >
+              <FileSpreadsheet size={16} /> Exportar inscritos
+            </button>
           )}
         </div>
 
@@ -331,55 +419,69 @@ export default function AdminInscritos() {
                     </tr>
                   </thead>
                   <tbody>
-                    {confirmados.map((inscrito, index) => (
-                      <tr
-                        key={inscrito.inscricao_id}
-                        className="border-b border-surface-100 last:border-0 hover:bg-surface-50 transition-colors"
-                      >
-                        <td className="px-5 py-3 text-gray-500 font-mono">
-                          #{String(index + 1).padStart(2, "0")}
-                        </td>
-                        <td className="px-5 py-3 font-medium text-gray-800">
-                          {inscrito.participante_nome}
-                        </td>
-                        <td className="px-5 py-3 text-gray-600">
-                          {labelTipo(inscrito.tipo_participante)}
-                        </td>
-                        <td className="px-5 py-3 text-gray-600">
-                          {inscrito.valor_inscricao != null
-                            ? formatarMoeda(inscrito.valor_inscricao)
-                            : "—"}
-                        </td>
-                        <td className="px-5 py-3 text-gray-600">
-                          {inscrito.nr_inscricao}
-                        </td>
-                        <td className="px-5 py-3 text-gray-500">
-                          {formatarData(inscrito.inscrito_em)}
-                        </td>
-                        <td className="px-5 py-3 text-center">
-                          <button
-                            onClick={() => handleTogglePago(inscrito)}
-                            disabled={atualizandoId === inscrito.inscricao_id}
-                            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                              inscrito.pago
-                                ? "bg-green-100 text-green-700 hover:bg-green-200"
-                                : "bg-gray-100 text-gray-400 hover:bg-gray-200"
-                            }`}
-                            title={
-                              inscrito.pago
-                                ? "Clique para desmarcar pagamento"
-                                : "Clique para marcar como pago"
-                            }
+                    {grupos.map((g, gi) => {
+                      const linhas = g.titular ? [g.titular, ...g.subs] : g.subs;
+                      return linhas.map((inscrito, li) => {
+                        const ehTitular = inscrito.tipo_participante === "titular";
+                        const ehUltimo = li === linhas.length - 1;
+                        return (
+                          <tr
+                            key={inscrito.inscricao_id}
+                            className={`border-b border-surface-100 last:border-0 transition-colors ${ehTitular ? "bg-surface-50/60 hover:bg-surface-50" : "hover:bg-surface-50"}`}
                           >
-                            {atualizandoId === inscrito.inscricao_id ? (
-                              <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                              <DollarSign size={16} />
-                            )}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                            <td className="px-5 py-3 text-gray-500 font-mono">
+                              {ehTitular || !g.titular ? `#${String(gi + 1).padStart(2, "0")}` : ""}
+                            </td>
+                            <td className={`px-5 py-3 ${ehTitular ? "font-semibold text-gray-800" : "text-gray-700"}`}>
+                              {ehTitular ? (
+                                inscrito.participante_nome
+                              ) : (
+                                <span className="inline-flex items-center gap-2">
+                                  <span className="text-gray-300 font-mono">{ehUltimo ? "└─" : "├─"}</span>
+                                  {inscrito.participante_nome}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-gray-600">
+                              {labelTipo(inscrito.tipo_participante)}
+                            </td>
+                            <td className="px-5 py-3 text-gray-600">
+                              {inscrito.valor_inscricao != null
+                                ? formatarMoeda(inscrito.valor_inscricao)
+                                : "—"}
+                            </td>
+                            <td className="px-5 py-3 text-gray-600">
+                              {ehTitular ? inscrito.nr_inscricao : ""}
+                            </td>
+                            <td className="px-5 py-3 text-gray-500">
+                              {formatarData(inscrito.inscrito_em)}
+                            </td>
+                            <td className="px-5 py-3 text-center">
+                              <button
+                                onClick={() => handleTogglePago(inscrito)}
+                                disabled={atualizandoId === inscrito.inscricao_id}
+                                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                                  inscrito.pago
+                                    ? "bg-green-100 text-green-700 hover:bg-green-200"
+                                    : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+                                }`}
+                                title={
+                                  inscrito.pago
+                                    ? "Clique para desmarcar pagamento"
+                                    : "Clique para marcar como pago"
+                                }
+                              >
+                                {atualizandoId === inscrito.inscricao_id ? (
+                                  <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                  <DollarSign size={16} />
+                                )}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })}
                   </tbody>
                 </table>
               </div>
