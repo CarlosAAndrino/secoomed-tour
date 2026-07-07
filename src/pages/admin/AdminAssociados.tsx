@@ -73,18 +73,20 @@ function usePaginaAssociados(
 
       const inicio = (pagina - 1) * POR_PAGINA;
       const fim = inicio + POR_PAGINA - 1;
-      const dig = termo.replace(/\D/g, "");
+      // remove caracteres com significado na sintaxe .or() do PostgREST
+      const termoSafe = termo.replace(/[,()"]/g, "");
+      const dig = termoSafe.replace(/\D/g, "");
 
       let query = supabase
         .from("associados")
-        .select("*, dependentes(count)", { count: "exact" })
+        .select("id, nr_inscricao, nome, celular, cpf, data_nascimento, empresa, ativo, user_id, primeiro_acesso, email, email_verificado, dependentes(count)", { count: "exact" })
         .eq("ativo", ativo);
 
       if (adminUserIds.length > 0) {
         query = query.not("user_id", "in", `(${adminUserIds.join(",")})`);
       }
       if (termo.length > 0) {
-        const cond = [`nome.ilike.%${termo}%`];
+        const cond = [`nome.ilike.%${termoSafe}%`];
         if (dig) cond.push(`cpf.ilike.%${dig}%`);
         query = query.or(cond.join(","));
       }

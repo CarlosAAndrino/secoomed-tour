@@ -130,7 +130,7 @@ export default function AdminImportacao() {
     if (!error) setHistorico((data as ItemHistorico[]) ?? []);
     setCarregandoHist(false);
   }
-  useEffect(() => { if (aba === "historico") carregarHistorico(); }, [aba]);
+  useEffect(() => { if (aba === "historico") { void Promise.resolve().then(carregarHistorico); } }, [aba]);
 
   // ── Handlers Associados ──
   async function aoSelecionarAssociados(e: React.ChangeEvent<HTMLInputElement>) {

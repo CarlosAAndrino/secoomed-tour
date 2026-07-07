@@ -264,10 +264,11 @@ export default function AdminAdministradores() {
   // ─── Carrega lista (qualquer admin pode chamar) ───────────────────────────
   useEffect(() => {
     let mounted = true
-    setCarregando(true)
-    setErro('')
 
-    supabase.rpc('listar_admins_detalhado').then(({ data, error }) => {
+    const buscar = async () => {
+      setCarregando(true)
+      setErro('')
+      const { data, error } = await supabase.rpc('listar_admins_detalhado')
       if (!mounted) return
 
       if (error) {
@@ -284,7 +285,8 @@ export default function AdminAdministradores() {
       setIsMaster(eu?.admin_role === 'master')
 
       setCarregando(false)
-    })
+    }
+    buscar()
 
     return () => { mounted = false }
   }, [reloadKey, currentUserId])

@@ -48,7 +48,7 @@ export default function AdminDependentes() {
         ] = await Promise.all([
           supabase
             .from("associados")
-            .select("*")
+            .select("id, nr_inscricao, nome, celular, cpf, data_nascimento, empresa, ativo, user_id, primeiro_acesso, email, email_verificado")
             .eq("id", associadoId)
             .abortSignal(controller.signal)
             .single(),            

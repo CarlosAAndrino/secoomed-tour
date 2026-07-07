@@ -14,7 +14,6 @@ import type { InscricaoEvento, EventoLista } from "@/types/database";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useAuth } from '@/hooks/useAuth'
-import { loadingStart, loadingEnd, loadingError, diag } from "@/lib/diag";
 
 function formatarData(data: string): string {
   return format(new Date(data), "dd/MM/yyyy", { locale: ptBR });
@@ -72,7 +71,6 @@ export default function AdminInscritos() {
     const timeoutId = setTimeout(() => controller.abort(), 10_000);
 
     const buscar = async () => {
-      loadingStart("AdminInscritos", "fetch_inscritos", { eventoId });
       setCarregando(true);
       setErro("");
 
@@ -101,7 +99,6 @@ export default function AdminInscritos() {
 
         if (evError || inscError) {
           const error = evError ?? inscError;
-          loadingError("AdminInscritos", "fetch_inscritos", { erro: error?.message, code: error?.code });
           if (error?.code === "PGRST301" || error?.message?.includes("JWT")) {
             window.location.href = "/entrar";
             return;
@@ -112,11 +109,9 @@ export default function AdminInscritos() {
 
         setEvento((ev as EventoLista) ?? null);
         setInscritos((insc as InscricaoEvento[]) ?? []);
-        loadingEnd("AdminInscritos", "fetch_inscritos", { qtd: (insc as InscricaoEvento[])?.length ?? 0 });
       } catch (err: unknown) {
         clearTimeout(timeoutId);
         if (!mounted) return;
-        loadingError("AdminInscritos", "fetch_inscritos", { erro: (err as Error)?.name });
         if (err instanceof Error && err.name === "AbortError") {
           setErro("A requisição demorou muito. Verifique sua conexão.");
         } else {
@@ -136,24 +131,18 @@ export default function AdminInscritos() {
     };
   }, [eventoId, reloadKey, dataRefreshKey]);
 
-  // ─── Toggle pagamento (AÇÃO INSTRUMENTADA) ──────────────────────────────────
+  // ─── Toggle pagamento ────────────────────────────────────────────────────
   async function handleTogglePago(inscricao: InscricaoEvento) {
-    const acao = "toggle_pago";
-    diag("AdminInscritos", "CLICK", { acao, id: inscricao.inscricao_id });
-    loadingStart("AdminInscritos", acao, { id: inscricao.inscricao_id });
     setAtualizandoId(inscricao.inscricao_id);
 
     const novoPago = !inscricao.pago;
     try {
-      diag("AdminInscritos", "ANTES_UPDATE", { acao, id: inscricao.inscricao_id });
       const { error } = await supabase
         .from("inscricoes")
         .update({ pago: novoPago })
         .eq("id", inscricao.inscricao_id);
-      diag("AdminInscritos", "DEPOIS_UPDATE", { acao, id: inscricao.inscricao_id, temErro: !!error });
 
       if (error) {
-        loadingError("AdminInscritos", acao, { erro: error.message });
         setFeedback("Erro ao atualizar pagamento.");
       } else {
         setInscritos((prev) =>
@@ -168,10 +157,8 @@ export default function AdminInscritos() {
             ? `Pagamento de ${inscricao.participante_nome.split(" ")[0]} confirmado.`
             : `Pagamento de ${inscricao.participante_nome.split(" ")[0]} desmarcado.`
         );
-        loadingEnd("AdminInscritos", acao, { novoPago });
       }
-    } catch (e) {
-      loadingError("AdminInscritos", acao, { erro: (e as Error)?.name });
+    } catch {
       setFeedback("Erro ao atualizar pagamento.");
     }
 
@@ -179,37 +166,29 @@ export default function AdminInscritos() {
     setTimeout(() => setFeedback(""), 3000);
   }
 
-  // ─── Marcar todos como pagos (AÇÃO INSTRUMENTADA) ───────────────────────────
+  // ─── Marcar todos como pagos ─────────────────────────────────────────────
   async function handleMarcarTodosPagos() {
     if (!eventoId) return;
     const naoPagos = confirmados.filter((i) => !i.pago);
     if (naoPagos.length === 0) return;
 
-    const acao = "marcar_todos_pagos";
-    diag("AdminInscritos", "CLICK", { acao, qtd: naoPagos.length });
-    loadingStart("AdminInscritos", acao, { qtd: naoPagos.length });
     setAtualizandoId("todos");
 
     try {
-      diag("AdminInscritos", "ANTES_UPDATE", { acao });
       const { error } = await supabase
         .from("inscricoes")
         .update({ pago: true })
         .eq("evento_id", eventoId)
         .eq("status", "confirmada")
         .eq("pago", false);
-      diag("AdminInscritos", "DEPOIS_UPDATE", { acao, temErro: !!error });
 
       if (error) {
-        loadingError("AdminInscritos", acao, { erro: error.message });
         setFeedback("Erro ao atualizar pagamentos.");
       } else {
         setInscritos((prev) => prev.map((i) => ({ ...i, pago: true })));
         setFeedback(`${naoPagos.length} inscrição(ões) marcada(s) como paga(s).`);
-        loadingEnd("AdminInscritos", acao, {});
       }
-    } catch (e) {
-      loadingError("AdminInscritos", acao, { erro: (e as Error)?.name });
+    } catch {
       setFeedback("Erro ao atualizar pagamentos.");
     }
 
@@ -325,7 +304,7 @@ export default function AdminInscritos() {
               className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-white px-4 py-2.5 rounded-xl transition-colors hover:opacity-90"
               style={{ backgroundColor: "#16a34a" }}
             >
-              <FileSpreadsheet size={16} /> Exportar inscritos
+              <FileSpreadsheet size={16} /> Exportar inscritos (.xlsx)
             </button>
           )}
         </div>

@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data } = await supabase
         .from("associados")
-        .select("*")
+        .select("id, nr_inscricao, nome, celular, cpf, data_nascimento, empresa, ativo, user_id, primeiro_acesso, email, email_verificado")
         .eq("user_id", userId)
         .single();
       setAssociado(data ?? null);
