@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Eye, EyeOff, KeyRound, CheckCircle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Props {
   visivel: boolean;
@@ -22,6 +23,8 @@ function validarSenha(senha: string): string | null {
 }
 
 export default function ModalPrimeiroAcesso({ visivel, onConcluido }: Props) {
+  const { associado } = useAuth();
+  const cpfUsuario = associado?.cpf ?? "";
   const [novaSenha, setNovaSenha] = useState("");
   const [confirmarSenha, setConfirmarSenha] = useState("");
   const [mostrarNova, setMostrarNova] = useState(false);
@@ -49,6 +52,9 @@ export default function ModalPrimeiroAcesso({ visivel, onConcluido }: Props) {
     if (erroValidacao) return setErro(erroValidacao);
     if (novaSenha !== confirmarSenha)
       return setErro("As senhas não coincidem.");
+    // Bloqueia reutilizar o CPF (senha inicial) como senha definitiva
+    if (cpfUsuario && novaSenha.replace(/\D/g, "") === cpfUsuario)
+      return setErro("A nova senha não pode ser o seu CPF.");
 
     setSalvando(true);
 

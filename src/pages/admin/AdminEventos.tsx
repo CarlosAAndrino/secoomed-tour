@@ -16,17 +16,6 @@ function formatarData(data: string): string {
   return format(new Date(data), "dd 'de' MMMM 'de' yyyy 'às' HH:mm", { locale: ptBR });
 }
 
-// ─── Log de diagnóstico autônomo (sem dependência externa) ──────────────────
-// Remover quando o bug de loading infinito for confirmado resolvido.
-function logLoading(evento: string, payload?: Record<string, unknown>) {
-  console.log(
-    `%c[LOADING ${Math.round(performance.now())}ms] %cAdminEventos %c${evento}`,
-    "color:#888",
-    "color:#16a34a;font-weight:bold",
-    "color:#2563eb;font-weight:bold",
-    payload ?? ""
-  );
-}
 
 function badgeStatus(status: string): React.ReactNode {
   switch (status) {
@@ -116,7 +105,6 @@ export default function AdminEventos() {
     }, 10_000);
 
     const buscar = async () => {
-      logLoading("LOADING_START", { reloadKey, dataRefreshKey });
       setCarregando(true);
       setErro("");
 
@@ -131,28 +119,23 @@ export default function AdminEventos() {
 
         if (error) {
           if (error.code === "PGRST301" || error.message?.includes("JWT")) {
-            logLoading("LOADING_ERROR", { motivo: "JWT", code: error.code });
             window.location.href = "/entrar";
             return;
           }
           if (!ativo) {
-            logLoading("LOADING_ABORT", { motivo: "erro em execucao obsoleta" });
             return;
           }
-          logLoading("LOADING_ERROR", { motivo: error.message });
           setErro("Não foi possível carregar os eventos.");
           setCarregando(false);
           return;
         }
 
         if (!ativo) {
-          logLoading("LOADING_ABORT", { motivo: "sucesso em execucao obsoleta" });
           return;
         }
 
         setEventos((data as EventoLista[]) ?? []);
         setCarregando(false);
-        logLoading("LOADING_SUCCESS", { qtd: (data as EventoLista[])?.length ?? 0 });
       } catch (err: unknown) {
         clearTimeout(timeoutId);
 
@@ -160,24 +143,17 @@ export default function AdminEventos() {
 
         if (ehAbort) {
           if (abortPorTimeout && ativo) {
-            logLoading("LOADING_ABORT", { motivo: "timeout", liberaLoading: true });
             setErro("A requisição demorou muito. Verifique sua conexão.");
             setCarregando(false);
-          } else {
-            logLoading("LOADING_ABORT", { motivo: "recriacao", liberaLoading: false });
           }
           return;
         }
 
         if (!ativo) {
-          logLoading("LOADING_ABORT", { motivo: "excecao em execucao obsoleta" });
           return;
         }
-        logLoading("LOADING_ERROR", { motivo: (err as Error)?.name ?? "desconhecido" });
         setErro("Erro de conexão.");
         setCarregando(false);
-      } finally {
-        logLoading("LOADING_END", { ativo });
       }
     };
 
